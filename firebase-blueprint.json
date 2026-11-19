@@ -1,0 +1,312 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Private authenticated dealer or founder profile synced from Google Sign-In.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID matching the document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name from Google profile.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified Google account email address (PII).",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Optional Google avatar URL.",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set at initial profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated on profile sync."
+        }
+      },
+      "required": ["uid", "displayName", "email", "photoURL", "createdAt", "updatedAt"]
+    },
+    "CartItemRecord": {
+      "title": "Cart Item Record",
+      "description": "Single electrical SKU quantity entry in a signed-in user's trial basket subcollection.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the user who owns this basket item.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "productId": {
+          "type": "string",
+          "description": "D&D Group SKU identifier matching the document ID.",
+          "minLength": 7,
+          "maxLength": 12,
+          "pattern": "^DD-[0-9]{4}$"
+        },
+        "qty": {
+          "type": "integer",
+          "description": "Selected unit quantity between 1 and 999."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last basket quantity update."
+        }
+      },
+      "required": ["ownerId", "productId", "qty", "updatedAt"]
+    },
+    "TrialOrder": {
+      "title": "Trial Order Request",
+      "description": "Jaipur electrical dealer trial basket request with bounded SKU snapshot and lifecycle status.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the authenticated user who created this trial request.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "referenceId": {
+          "type": "string",
+          "description": "Human-readable trial reference ID matching the document ID.",
+          "minLength": 3,
+          "maxLength": 64,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 submission timestamp for display.",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string",
+          "description": "Dealer contact person name (PII).",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "business": {
+          "type": "string",
+          "description": "Dealer shop or company name (PII).",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "description": "10-digit Indian mobile number (PII).",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[6-9][0-9]{9}$"
+        },
+        "city": {
+          "type": "string",
+          "description": "City or market area.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "segment": {
+          "type": "string",
+          "description": "Buyer segment classification.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional sample comparison or delivery notes.",
+          "minLength": 0,
+          "maxLength": 800
+        },
+        "items": {
+          "type": "array",
+          "description": "Bounded list (1 to 50) of ordered SKU line items."
+        },
+        "total": {
+          "type": "number",
+          "description": "Total illustrative wholesale value in INR."
+        },
+        "status": {
+          "type": "string",
+          "description": "Trial request workflow status; Closed is terminal for non-admin owners.",
+          "enum": ["Requested", "Contacted", "Trial confirmed", "Closed"]
+        },
+        "repeat": {
+          "type": "boolean",
+          "description": "Whether the dealer indicated interest in repeat orders."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest status or repeat update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "referenceId",
+        "date",
+        "name",
+        "business",
+        "phone",
+        "city",
+        "segment",
+        "notes",
+        "items",
+        "total",
+        "status",
+        "repeat",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DealerLead": {
+      "title": "Dealer Connect Enquiry",
+      "description": "Jaipur electrical dealer outreach enquiry capturing sourcing pain points.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the authenticated user who logged this enquiry.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 enquiry date string.",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact person name (PII).",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "business": {
+          "type": "string",
+          "description": "Shop or trading firm name (PII).",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "description": "10-digit Indian mobile number (PII).",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[6-9][0-9]{9}$"
+        },
+        "city": {
+          "type": "string",
+          "description": "Dealer city.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "interest": {
+          "type": "string",
+          "description": "Primary product category of interest.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "currentSupplier": {
+          "type": "string",
+          "description": "Current primary sourcing channel.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "challenge": {
+          "type": "string",
+          "description": "Main procurement pain point.",
+          "minLength": 0,
+          "maxLength": 800
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "date",
+        "name",
+        "business",
+        "phone",
+        "city",
+        "interest",
+        "currentSupplier",
+        "challenge",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "Admin Allowlist Record",
+      "description": "Read-only server-managed RBAC allowlist document for pilot administrators.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID granted admin role.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        }
+      },
+      "required": ["uid"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-isolated user profile synced from Google Sign-In."
+    },
+    "/users/{userId}/cartItems/{skuId}": {
+      "schema": { "$ref": "#/entities/CartItemRecord" },
+      "description": "Per-user trial basket SKU quantities stored as a scalable subcollection."
+    },
+    "/trialOrders/{orderId}": {
+      "schema": { "$ref": "#/entities/TrialOrder" },
+      "description": "Owner-isolated dealer trial basket requests with terminal Closed status protection."
+    },
+    "/dealerLeads/{leadId}": {
+      "schema": { "$ref": "#/entities/DealerLead" },
+      "description": "Owner-isolated Jaipur dealer connect enquiries."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Immutable console-managed admin allowlist."
+    }
+  }
+}

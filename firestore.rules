@@ -1,0 +1,270 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Global Hardened Primitives (Phase 3 + Phase 5 Patches)
+    // ---------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSkuId(skuId) {
+      return skuId is string && skuId.size() >= 7 && skuId.size() <= 12 && skuId.matches('^DD-[0-9]{4}$');
+    }
+
+    function isValidRefId(refId) {
+      return refId is string && refId.size() >= 3 && refId.size() <= 64 && refId.matches('^[A-Z0-9\\-]+$');
+    }
+
+    function isValidPhone(phone) {
+      return phone is string && phone.size() == 10 && phone.matches('^[6-9][0-9]{9}$');
+    }
+
+    // Pure token check (zero DB reads) for safe use inside allow list queries
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'mohitdeval9799@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // ---------------------------------------------------------
+    // Validation Blueprints (Pillar 2: Anti-Update-Gap)
+    // ---------------------------------------------------------
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        data.displayName is string && data.displayName.size() <= 120 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.photoURL is string && data.photoURL.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCartItem(data, userId, skuId) {
+      return data.keys().hasAll(['ownerId', 'productId', 'qty', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerId', 'productId', 'qty', 'updatedAt']) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        isValidSkuId(data.productId) &&
+        data.productId == skuId &&
+        data.qty is int && data.qty >= 1 && data.qty <= 999 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrderItem(item) {
+      return item is map &&
+        item.keys().hasAll(['id', 'category', 'family', 'spec', 'name', 'price', 'kind', 'unit', 'qty']) &&
+        item.keys().hasOnly(['id', 'category', 'family', 'spec', 'name', 'price', 'kind', 'unit', 'qty']) &&
+        isValidSkuId(item.id) &&
+        item.category is string && item.category.size() >= 1 && item.category.size() <= 80 &&
+        item.family is string && item.family.size() >= 1 && item.family.size() <= 120 &&
+        item.spec is string && item.spec.size() >= 1 && item.spec.size() <= 120 &&
+        item.name is string && item.name.size() >= 1 && item.name.size() <= 200 &&
+        (item.price is int || item.price is float) && item.price > 0 && item.price <= 1000000 &&
+        item.kind is string && item.kind.size() >= 1 && item.kind.size() <= 32 &&
+        item.unit is string && item.unit.size() >= 1 && item.unit.size() <= 32 &&
+        item.qty is int && item.qty >= 1 && item.qty <= 999;
+    }
+
+    function isValidTrialOrder(data, orderId) {
+      return data.keys().hasAll([
+          'ownerId', 'referenceId', 'date', 'name', 'business', 'phone',
+          'city', 'segment', 'notes', 'items', 'total', 'status', 'repeat',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'referenceId', 'date', 'name', 'business', 'phone',
+          'city', 'segment', 'notes', 'items', 'total', 'status', 'repeat',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        (data.ownerId == request.auth.uid || isAdmin()) &&
+        isValidRefId(data.referenceId) &&
+        data.referenceId == orderId &&
+        data.date is string && data.date.size() >= 10 && data.date.size() <= 40 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.business is string && data.business.size() >= 1 && data.business.size() <= 120 &&
+        isValidPhone(data.phone) &&
+        data.city is string && data.city.size() >= 1 && data.city.size() <= 80 &&
+        data.segment is string && data.segment.size() >= 1 && data.segment.size() <= 60 &&
+        data.notes is string && data.notes.size() <= 800 &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 50 &&
+        isValidOrderItem(data.items[0]) &&
+        (data.total is int || data.total is float) && data.total > 0 && data.total <= 100000000 &&
+        data.status in ['Requested', 'Contacted', 'Trial confirmed', 'Closed'] &&
+        data.repeat is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDealerLead(data) {
+      return data.keys().hasAll([
+          'ownerId', 'date', 'name', 'business', 'phone', 'city',
+          'interest', 'currentSupplier', 'challenge', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'date', 'name', 'business', 'phone', 'city',
+          'interest', 'currentSupplier', 'challenge', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        (data.ownerId == request.auth.uid || isAdmin()) &&
+        data.date is string && data.date.size() >= 10 && data.date.size() <= 40 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.business is string && data.business.size() >= 1 && data.business.size() <= 120 &&
+        isValidPhone(data.phone) &&
+        data.city is string && data.city.size() >= 1 && data.city.size() <= 80 &&
+        data.interest is string && data.interest.size() >= 1 && data.interest.size() <= 80 &&
+        data.currentSupplier is string && data.currentSupplier.size() >= 1 && data.currentSupplier.size() <= 100 &&
+        data.challenge is string && data.challenge.size() <= 800 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // ---------------------------------------------------------
+    // Collection Rules (All 5 Blueprint Paths Covered)
+    // ---------------------------------------------------------
+
+    // 1. Admin allowlist (Console-managed only; zero client writes)
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (adminId == request.auth.uid || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // 2. User profiles (PII-isolated to owner or verified admin)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (userId == request.auth.uid || isAdmin());
+      allow list: if false;
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        userId == request.auth.uid &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt'])) ||
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']))
+        );
+      allow delete: if false;
+
+      // 2a. User Trial Basket Items subcollection (Master Gate checks parent user doc)
+      match /cartItems/{skuId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidSkuId(skuId) && (userId == request.auth.uid || isAdmin());
+        allow list: if isSignedIn() && isValidId(userId) && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidSkuId(skuId) &&
+          userId == request.auth.uid &&
+          isValidCartItem(incoming(), userId, skuId) &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidSkuId(skuId) &&
+          isValidCartItem(incoming(), userId, skuId) &&
+          userId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().productId == existing().productId &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['qty', 'updatedAt']) &&
+          exists(/databases/$(database)/documents/users/$(userId));
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidSkuId(skuId) && (userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // 3. Trial Orders (PII-isolated, action-based updates, terminal Closed state locking)
+    match /trialOrders/{orderId} {
+      allow get: if isSignedIn() && isValidId(orderId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidTrialOrder(incoming(), orderId) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().status in ['Requested', 'Contacted', 'Trial confirmed'] &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidTrialOrder(incoming(), orderId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().referenceId == existing().referenceId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Owner updates workflow status while not in terminal Closed state
+          (existing().ownerId == request.auth.uid &&
+            existing().status != 'Closed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+          // Action 2: Owner toggles repeat-purchase interest while not in terminal Closed state
+          (existing().ownerId == request.auth.uid &&
+            existing().status != 'Closed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['repeat', 'updatedAt'])) ||
+          // Action 3: Admin override for correcting status, repeat flag, or notes
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'repeat', 'notes', 'updatedAt']))
+        );
+      allow delete: if isVerifiedUser() && isValidId(orderId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    // 4. Dealer Connect Enquiries (PII-isolated)
+    match /dealerLeads/{leadId} {
+      allow get: if isSignedIn() && isValidId(leadId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(leadId) &&
+        isValidDealerLead(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if isVerifiedUser() &&
+        isValidId(leadId) &&
+        isValidDealerLead(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['interest', 'currentSupplier', 'challenge', 'updatedAt'])) ||
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['interest', 'currentSupplier', 'challenge', 'updatedAt']))
+        );
+      allow delete: if isVerifiedUser() && isValidId(leadId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+  }
+}

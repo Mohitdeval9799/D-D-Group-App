@@ -1,0 +1,6 @@
+{
+  "name": "D&D Group — Electrical Catalogue & Jaipur Pilot",
+  "description": "B2B electrical product catalogue, trial ordering basket, dealer connect portal, and 30-day Jaipur pilot validation dashboard for D&D Group.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
