@@ -5,6 +5,7 @@ import type { PageId } from '../types';
 interface HeaderProps {
   activePage: PageId;
   basketCount: number;
+  companyName?: string;
   onNavigate: (page: PageId) => void;
 }
 
@@ -13,9 +14,15 @@ const NAV_ITEMS: { id: PageId; label: string }[] = [
   { id: 'catalogue', label: 'Products' },
   { id: 'dealer', label: 'Dealer Connect' },
   { id: 'dashboard', label: 'Pilot Dashboard' },
+  { id: 'admin', label: 'Admin' },
 ];
 
-export function Header({ activePage, basketCount, onNavigate }: HeaderProps) {
+export function Header({
+  activePage,
+  basketCount,
+  companyName = 'D&D Group',
+  onNavigate,
+}: HeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleNav = (page: PageId) => {
@@ -23,23 +30,35 @@ export function Header({ activePage, basketCount, onNavigate }: HeaderProps) {
     setMobileOpen(false);
   };
 
+  const trimmedName = companyName.trim() || 'D&D Group';
+  const isDefaultBrand = trimmedName === 'D&D Group';
+
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-[#dce5e3]">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
         {/* Zone 1: Single-line brand wordmark */}
         <button
           type="button"
           onClick={() => handleNav('home')}
           className="font-display text-xl sm:text-2xl font-extrabold tracking-tight text-[#142a30] whitespace-nowrap shrink-0 cursor-pointer"
         >
-          D<span className="text-[#087c67]">&amp;</span>D Group
-          <span className="text-[#087c67]">.</span>
+          {isDefaultBrand ? (
+            <>
+              D<span className="text-[#087c67]">&amp;</span>D Group
+              <span className="text-[#087c67]">.</span>
+            </>
+          ) : (
+            <>
+              {trimmedName}
+              <span className="text-[#087c67]">.</span>
+            </>
+          )}
         </button>
 
-        {/* Zone 2: 4 clean single-line navigation links */}
+        {/* Zone 2: 5 clean single-line navigation links */}
         <nav
           aria-label="Main navigation"
-          className="hidden md:flex items-center gap-7 text-sm font-medium"
+          className="hidden md:flex items-center gap-6 lg:gap-7 text-sm font-medium"
         >
           {NAV_ITEMS.map((item) => {
             const isActive = activePage === item.id;
@@ -49,6 +68,7 @@ export function Header({ activePage, basketCount, onNavigate }: HeaderProps) {
                 type="button"
                 onClick={() => handleNav(item.id)}
                 aria-current={isActive ? 'page' : undefined}
+                data-testid={`nav-${item.id}`}
                 className={`relative py-5 whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer ${
                   isActive
                     ? 'text-[#087c67] font-semibold'

@@ -1,47 +1,83 @@
 import { ArrowRight } from 'lucide-react';
-import { CATEGORIES, PRODUCTS } from '../data/products';
 import { CATEGORY_SUMMARIES, VENTURE_META } from '../data/venturePlan';
 import { formatInr, getCategoryCounts, getCategoryMinPrice } from '../utils/catalog';
-import type { PageId, Product } from '../types';
-import { ProductIllustration } from './ProductIllustration';
+import type { BusinessSettings, PageId, Product } from '../types';
+import { ProductVisual } from './ProductVisual';
 
 interface HomeViewProps {
+  products: Product[];
+  categories: string[];
+  settings: BusinessSettings;
   onNavigate: (page: PageId) => void;
   onSelectCategory: (category: string) => void;
 }
 
-const HERO_SHOWCASE_IDS = ['DD-0053', 'DD-0001', 'DD-0257', 'DD-0196'];
+const DEFAULT_HERO_IDS = ['DD-0053', 'DD-0001', 'DD-0257', 'DD-0196'];
 
-export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
-  const counts = getCategoryCounts(PRODUCTS, CATEGORIES);
+export function HomeView({
+  products,
+  categories,
+  settings,
+  onNavigate,
+  onSelectCategory,
+}: HomeViewProps) {
+  const counts = getCategoryCounts(products, categories);
 
-  const heroProducts = HERO_SHOWCASE_IDS.map(
-    (id) => PRODUCTS.find((p) => p.id === id) ?? PRODUCTS[0]
-  );
+  // Pick up to 4 featured items first, filling remaining slots from default showcase IDs
+  const heroProducts: Product[] = [];
+  const usedIds = new Set<string>();
+  for (const p of products) {
+    if (p.featured && heroProducts.length < 4) {
+      heroProducts.push(p);
+      usedIds.add(p.id);
+    }
+  }
+  for (const id of DEFAULT_HERO_IDS) {
+    if (heroProducts.length >= 4) break;
+    const found = products.find((p) => p.id === id && !usedIds.has(p.id));
+    if (found) {
+      heroProducts.push(found);
+      usedIds.add(found.id);
+    }
+  }
+  for (const p of products) {
+    if (heroProducts.length >= 4) break;
+    if (!usedIds.has(p.id)) {
+      heroProducts.push(p);
+      usedIds.add(p.id);
+    }
+  }
 
-  const categoryRep = (cat: string): Product =>
-    PRODUCTS.find((p) => p.category === cat) ?? PRODUCTS[0];
+  const categoryRep = (cat: string): Product | undefined =>
+    products.find((p) => p.category === cat);
+
+  const activeCategories = categories.filter((cat) => (counts[cat] ?? 0) > 0);
 
   return (
     <div className="space-y-12">
+      {/* Optional Storefront Announcement Banner */}
+      {settings.announcementBanner.trim() !== '' && (
+        <div className="rounded-lg bg-[#e6f3ee] border border-[#b9ddd0] px-4 py-3 text-xs sm:text-sm font-medium text-[#0c4437]">
+          {settings.announcementBanner}
+        </div>
+      )}
+
       {/* 1. Architectural Industrial Hero */}
       <section className="rounded-xl bg-[#0d2f2c] text-white overflow-hidden border border-[#194843]">
         <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch">
           <div className="lg:col-span-7 p-8 sm:p-11 lg:p-14 flex flex-col justify-between gap-8">
             <div className="space-y-5">
               <p className="text-xs font-medium tracking-wider text-[#8ad8be]">
-                D&amp;D Group · Jaipur, Rajasthan Dealer Pilot
+                {settings.heroEyebrow}
               </p>
               <h1
                 className="font-display font-extrabold tracking-tight text-white leading-[1.08] max-w-xl"
                 style={{ fontSize: 'clamp(2.2rem, 3.8vw, 3.45rem)', textWrap: 'balance' }}
               >
-                Built around your electrical business.
+                {settings.heroTitle}
               </h1>
               <p className="text-base sm:text-[17px] text-[#c7ddd6] leading-relaxed max-w-[56ch]">
-                Source modular switches, LED lighting, FR copper wires, switchgear, distribution
-                boards, and electrical accessories from one dependable manufacturing partner.
-                Compare all 329 sample variants and assemble your Jaipur trial request in minutes.
+                {settings.heroSubtitle}
               </p>
             </div>
 
@@ -51,7 +87,7 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
                 onClick={() => onNavigate('catalogue')}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-md bg-white text-[#0d2f2c] font-semibold text-sm hover:bg-[#eaf4f0] transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <span>Explore {PRODUCTS.length} Products</span>
+                <span>Explore {products.length} Products</span>
                 <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </button>
               <button
@@ -64,7 +100,7 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
             </div>
           </div>
 
-          {/* 2x2 Industrial Studio Render Showcase */}
+          {/* 2x2 Industrial Studio Render / Photo Showcase */}
           <div className="lg:col-span-5 bg-[#123d38] border-t lg:border-t-0 lg:border-l border-white/10 p-6 sm:p-8 flex items-center">
             <div className="grid grid-cols-2 gap-3.5 w-full">
               {heroProducts.map((product) => (
@@ -74,8 +110,8 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
                   onClick={() => onSelectCategory(product.category)}
                   className="group text-left rounded-lg bg-[#f6f9f8] p-3 transition-transform duration-150 hover:-translate-y-0.5 cursor-pointer"
                 >
-                  <div className="h-28 sm:h-32 flex items-center justify-center">
-                    <ProductIllustration product={product} className="w-full h-full max-w-[180px]" />
+                  <div className="h-28 sm:h-32 flex items-center justify-center overflow-hidden">
+                    <ProductVisual product={product} className="w-full h-full max-w-[180px]" />
                   </div>
                   <div className="pt-2 border-t border-[#dde6e3] flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-[#142a30] truncate">
@@ -93,53 +129,64 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
       </section>
 
       {/* 2. Full-Width 4-Column Key Metrics Strip */}
-      <section aria-label="Venture pilot overview" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <section aria-label="Catalogue overview" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-[#dce5e3] rounded-lg p-5">
-          <div className="text-xs text-[#5a6d71]">Sample Catalogue</div>
+          <div className="text-xs text-[#5a6d71]">
+            {settings.showPrototypeNotices ? 'Sample Catalogue' : 'Live Catalogue'}
+          </div>
           <div className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] tabular-nums mt-1.5">
-            {PRODUCTS.length}
+            {products.length}
           </div>
           <div className="text-xs text-[#5a6d71] mt-1">Selectable electrical SKUs</div>
         </div>
         <div className="bg-white border border-[#dce5e3] rounded-lg p-5">
           <div className="text-xs text-[#5a6d71]">Product Categories</div>
           <div className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] tabular-nums mt-1.5">
-            {CATEGORIES.length}
+            {activeCategories.length}
           </div>
           <div className="text-xs text-[#5a6d71] mt-1">Switches, lighting, protection &amp; cables</div>
         </div>
         <div className="bg-white border border-[#dce5e3] rounded-lg p-5">
-          <div className="text-xs text-[#5a6d71]">Initial Beachhead</div>
-          <div className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] mt-1.5">
-            Jaipur
+          <div className="text-xs text-[#5a6d71]">Operating Hub</div>
+          <div className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] mt-1.5 truncate">
+            {settings.city.split(',')[0] || 'Jaipur'}
           </div>
-          <div className="text-xs text-[#5a6d71] mt-1">SME dealers &amp; contractors in Rajasthan</div>
+          <div className="text-xs text-[#5a6d71] mt-1">SME dealers &amp; contractors supply</div>
         </div>
         <div className="bg-white border border-[#dce5e3] rounded-lg p-5">
-          <div className="text-xs text-[#5a6d71]">30-Day Pilot Goal</div>
-          <div className="font-display text-2xl sm:text-3xl font-bold text-[#087c67] tabular-nums mt-1.5">
-            {VENTURE_META.pilotTargetDealers} Dealers
+          <div className="text-xs text-[#5a6d71]">
+            {settings.showPrototypeNotices ? '30-Day Pilot Goal' : 'Wholesale Pricing'}
           </div>
-          <div className="text-xs text-[#5a6d71] mt-1">Target milestone, not achieved sales</div>
+          <div className="font-display text-2xl sm:text-3xl font-bold text-[#087c67] tabular-nums mt-1.5">
+            {settings.showPrototypeNotices ? `${VENTURE_META.pilotTargetDealers} Dealers` : 'Direct B2B'}
+          </div>
+          <div className="text-xs text-[#5a6d71] mt-1">
+            {settings.showPrototypeNotices
+              ? 'Target milestone, not achieved sales'
+              : settings.gstNote || 'Factory-direct dealer rates'}
+          </div>
         </div>
       </section>
 
-      {/* Transparent student prototype notice */}
-      <div className="rounded-lg bg-[#fbf6e6] border border-[#e6d8ad] px-4 py-3 text-xs text-[#695326] leading-relaxed">
-        <strong className="font-semibold">Jaipur Pilot Prototype Notice:</strong> Product renderings
-        are original vector illustrations, not factory photographs or certified engineering
-        drawings. Catalogue prices and specs are sample wholesale estimates for venture validation.
-        No live inventory, BIS/ISI certification claim, online payment, or external order
-        transmission is active.
-      </div>
+      {/* Transparent student prototype notice (toggleable in Admin -> Business & Storefront) */}
+      {settings.showPrototypeNotices && (
+        <div className="rounded-lg bg-[#fbf6e6] border border-[#e6d8ad] px-4 py-3 text-xs text-[#695326] leading-relaxed">
+          <strong className="font-semibold">Jaipur Pilot Prototype Notice:</strong> Default product
+          renderings are original vector illustrations unless replaced with real product photos in
+          the Admin panel. Catalogue prices and specs can be customized anytime in Admin.
+        </div>
+      )}
 
-      {/* 3. Complete 13-Category Electrical Portfolio */}
+      {/* 3. Complete Electrical Portfolio */}
       <section aria-labelledby="portfolio-heading" className="space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold text-[#087c67]">Complete One-Stop Portfolio</p>
-            <h2 id="portfolio-heading" className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] tracking-tight mt-1">
-              Browse all {CATEGORIES.length} electrical categories.
+            <h2
+              id="portfolio-heading"
+              className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] tracking-tight mt-1"
+            >
+              Browse all {activeCategories.length} electrical categories.
             </h2>
           </div>
           <button
@@ -153,9 +200,10 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {CATEGORIES.map((category) => {
+          {activeCategories.map((category) => {
             const rep = categoryRep(category);
-            const minPrice = getCategoryMinPrice(PRODUCTS, category);
+            if (!rep) return null;
+            const minPrice = getCategoryMinPrice(products, category);
             return (
               <button
                 key={category}
@@ -163,8 +211,8 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
                 onClick={() => onSelectCategory(category)}
                 className="group bg-white border border-[#dce5e3] rounded-lg overflow-hidden text-left hover:border-[#8eb8ab] hover:-translate-y-0.5 hover:shadow-md transition-all duration-150 flex flex-col cursor-pointer"
               >
-                <div className="h-36 bg-gradient-to-b from-white to-[#eef3f1] flex items-center justify-center p-3 border-b border-[#eaf0ee]">
-                  <ProductIllustration product={rep} className="w-full h-full max-w-[210px]" />
+                <div className="h-36 bg-gradient-to-b from-white to-[#eef3f1] flex items-center justify-center p-3 border-b border-[#eaf0ee] overflow-hidden">
+                  <ProductVisual product={rep} className="w-full h-full max-w-[210px]" />
                 </div>
                 <div className="p-4 flex-1 flex flex-col justify-between gap-3">
                   <div>
@@ -177,12 +225,16 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
                       </span>
                     </div>
                     <p className="text-xs text-[#5a6d71] leading-relaxed mt-1.5">
-                      {CATEGORY_SUMMARIES[category]}
+                      {CATEGORY_SUMMARIES[category] ??
+                        'Wholesale electrical supplies tailored for retail dealers and contractors.'}
                     </p>
                   </div>
                   <div className="pt-2 border-t border-[#edf2f0] flex items-center justify-between text-xs">
                     <span className="text-[#5a6d71]">
-                      From <strong className="font-mono tabular-nums text-[#142a30]">{formatInr(minPrice)}</strong>
+                      From{' '}
+                      <strong className="font-mono tabular-nums text-[#142a30]">
+                        {formatInr(minPrice)}
+                      </strong>
                     </span>
                     <span className="font-semibold text-[#087c67] group-hover:translate-x-0.5 transition-transform">
                       Explore →
@@ -203,32 +255,37 @@ export function HomeView({ onNavigate, onSelectCategory }: HomeViewProps) {
             One supplier instead of five fragmented distributors.
           </h2>
           <p className="text-sm text-[#5a6d71] leading-relaxed">
-            Small and medium electrical dealers and contractors across Jaipur typically juggle
-            separate suppliers for wires, lighting, switches, and switchgear—leading to
-            inconsistent quality, squeezed margins on Tier-1 brands, and stockouts on site.
-            D&amp;D Group combines trading insight with in-house manufacturing control to deliver
-            consistent quality at competitive dealer pricing.
+            Small and medium electrical dealers and contractors typically juggle separate suppliers
+            for wires, lighting, switches, and switchgear—leading to inconsistent quality, squeezed
+            margins on Tier-1 brands, and stockouts on site. {settings.companyName} combines trading
+            insight with in-house manufacturing control to deliver consistent quality at competitive
+            dealer pricing.
           </p>
         </div>
 
         <div className="bg-white border border-[#dce5e3] rounded-lg p-6 sm:p-8 space-y-3">
-          <p className="text-xs font-semibold text-[#087c67]">Built for 30-Day Evidence Gathering</p>
+          <p className="text-xs font-semibold text-[#087c67]">
+            {settings.showPrototypeNotices ? 'Built for 30-Day Evidence Gathering' : 'Fast B2B Ordering'}
+          </p>
           <h3 className="font-display text-xl font-bold text-[#142a30]">
-            Test demand, quality feedback, and repeat interest locally.
+            {settings.showPrototypeNotices
+              ? 'Test demand, quality feedback, and repeat interest locally.'
+              : 'Build your mixed-category wholesale order in minutes.'}
           </h3>
           <p className="text-sm text-[#5a6d71] leading-relaxed">
-            Use this prototype during dealer visits across Jaipur to demonstrate the full 329-SKU
-            range, capture structured trial baskets around the ₹5,000 average order benchmark, log
-            procurement objections, and track progress toward 10 paying trial dealers and 30% repeat
-            order interest in the Pilot Dashboard.
+            Browse all {products.length} electrical variants, inspect ratings and dealer margins,
+            assemble mixed-category orders in the basket, and connect directly with the{' '}
+            {settings.companyName} sales desk for dispatch and bulk terms.
           </p>
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => onNavigate('dashboard')}
+              onClick={() => onNavigate(settings.showPrototypeNotices ? 'dashboard' : 'dealer')}
               className="text-sm font-semibold text-[#087c67] hover:text-[#066352] cursor-pointer"
             >
-              Open Pilot Validation Dashboard →
+              {settings.showPrototypeNotices
+                ? 'Open Pilot Validation Dashboard →'
+                : 'Contact Wholesale Sales Desk →'}
             </button>
           </div>
         </div>

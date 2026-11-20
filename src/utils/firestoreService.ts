@@ -14,10 +14,13 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import type { DealerLead, OrderStatus, TrialOrder } from '../types';
+import type { BusinessSettings, DealerLead, OrderStatus, Product, ProductKind, TrialOrder } from '../types';
+import { DEFAULT_BUSINESS_SETTINGS } from './catalogMerge';
 import {
   makeUserScopedSampleId,
+  sanitizeBusinessSettingsPayload,
   sanitizeCartItemPayload,
+  sanitizeCatalogProductPayload,
   sanitizeDealerLeadPayload,
   sanitizeTrialOrderPayload,
   sanitizeUserProfilePayload,
@@ -54,6 +57,190 @@ export async function ensureUserProfile(user: User): Promise<void> {
   }
 }
 
+// ------------------------------------------------------------------
+// Public Realtime Storefront Subscriptions (Catalog & Business Info)
+// ------------------------------------------------------------------
+export function subscribeCatalogOverrides(
+  onData: (overrides: Record<string, Product>) => void,
+  onError: (err: Error) => void
+): Unsubscribe {
+  const path = 'catalogProducts';
+  const q = query(collection(db, 'catalogProducts'), where('price', '>', 0));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const map: Record<string, Product> = {};
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        const id = typeof d.id === 'string' ? d.id : docSnap.id;
+        map[id] = {
+          id,
+          category: typeof d.category === 'string' ? d.category : 'Accessories',
+          family: typeof d.family === 'string' ? d.family : id,
+          spec: typeof d.spec === 'string' ? d.spec : '',
+          name: typeof d.name === 'string' ? d.name : `${d.family ?? id}`,
+          price: typeof d.price === 'number' ? d.price : 1,
+          mrp: typeof d.mrp === 'number' ? d.mrp : 0,
+          moq: typeof d.moq === 'number' ? d.moq : 1,
+          kind: (d.kind as ProductKind) || 'accessory',
+          unit: typeof d.unit === 'string' ? d.unit : 'piece',
+          description: typeof d.description === 'string' ? d.description : '',
+          imageUrl: typeof d.imageUrl === 'string' ? d.imageUrl : '',
+          inStock: d.inStock !== false,
+          isHidden: Boolean(d.isHidden),
+          featured: Boolean(d.featured),
+          isCustom: Boolean(d.isCustom),
+          isEdited: true,
+        };
+      });
+      onData(map);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (wrapped) {
+        onError(wrapped instanceof Error ? wrapped : new Error(String(wrapped)));
+      }
+    }
+  );
+}
+
+export function subscribeBusinessSettings(
+  onData: (settings: BusinessSettings | null) => void,
+  onError: (err: Error) => void
+): Unsubscribe {
+  const path = 'businessSettings/main';
+  return onSnapshot(
+    doc(db, 'businessSettings', 'main'),
+    (docSnap) => {
+      if (!docSnap.exists()) {
+        onData(null);
+        return;
+      }
+      const d = docSnap.data();
+      onData({
+        companyName:
+          typeof d.companyName === 'string' && d.companyName.trim()
+            ? d.companyName
+            : DEFAULT_BUSINESS_SETTINGS.companyName,
+        tagline:
+          typeof d.tagline === 'string' ? d.tagline : DEFAULT_BUSINESS_SETTINGS.tagline,
+        heroEyebrow:
+          typeof d.heroEyebrow === 'string'
+            ? d.heroEyebrow
+            : DEFAULT_BUSINESS_SETTINGS.heroEyebrow,
+        heroTitle:
+          typeof d.heroTitle === 'string' && d.heroTitle.trim()
+            ? d.heroTitle
+            : DEFAULT_BUSINESS_SETTINGS.heroTitle,
+        heroSubtitle:
+          typeof d.heroSubtitle === 'string'
+            ? d.heroSubtitle
+            : DEFAULT_BUSINESS_SETTINGS.heroSubtitle,
+        contactPerson:
+          typeof d.contactPerson === 'string'
+            ? d.contactPerson
+            : DEFAULT_BUSINESS_SETTINGS.contactPerson,
+        contactPhone: typeof d.contactPhone === 'string' ? d.contactPhone : '',
+        whatsappNumber: typeof d.whatsappNumber === 'string' ? d.whatsappNumber : '',
+        contactEmail:
+          typeof d.contactEmail === 'string'
+            ? d.contactEmail
+            : DEFAULT_BUSINESS_SETTINGS.contactEmail,
+        city: typeof d.city === 'string' ? d.city : DEFAULT_BUSINESS_SETTINGS.city,
+        address: typeof d.address === 'string' ? d.address : DEFAULT_BUSINESS_SETTINGS.address,
+        gstNote: typeof d.gstNote === 'string' ? d.gstNote : DEFAULT_BUSINESS_SETTINGS.gstNote,
+        announcementBanner:
+          typeof d.announcementBanner === 'string' ? d.announcementBanner : '',
+        showPrototypeNotices:
+          typeof d.showPrototypeNotices === 'boolean'
+            ? d.showPrototypeNotices
+            : DEFAULT_BUSINESS_SETTINGS.showPrototypeNotices,
+      });
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.GET, path);
+      } catch (wrapped) {
+        onError(wrapped instanceof Error ? wrapped : new Error(String(wrapped)));
+      }
+    }
+  );
+}
+
+// ------------------------------------------------------------------
+// Admin Catalog & Business Settings Mutations (Strictly Admin-Only)
+// ------------------------------------------------------------------
+export async function saveCatalogProductInFirestore(
+  adminUid: string,
+  product: Product
+): Promise<void> {
+  const sanitized = sanitizeCatalogProductPayload(adminUid, product);
+  const path = `catalogProducts/${sanitized.id}`;
+  try {
+    await setDoc(doc(db, 'catalogProducts', sanitized.id), {
+      ...sanitized,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function batchSaveCatalogProductsInFirestore(
+  adminUid: string,
+  products: Product[]
+): Promise<void> {
+  if (products.length === 0) return;
+  const path = 'catalogProducts (batch)';
+  // Firestore writeBatch limit is 500 ops; chunk safely at 400
+  const chunkSize = 400;
+  try {
+    for (let i = 0; i < products.length; i += chunkSize) {
+      const chunk = products.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      for (const product of chunk) {
+        const sanitized = sanitizeCatalogProductPayload(adminUid, product);
+        batch.set(doc(db, 'catalogProducts', sanitized.id), {
+          ...sanitized,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteCatalogProductOverrideInFirestore(productId: string): Promise<void> {
+  const path = `catalogProducts/${productId}`;
+  try {
+    await deleteDoc(doc(db, 'catalogProducts', productId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function saveBusinessSettingsInFirestore(
+  adminUid: string,
+  settings: BusinessSettings
+): Promise<void> {
+  const sanitized = sanitizeBusinessSettingsPayload(adminUid, settings);
+  const path = 'businessSettings/main';
+  try {
+    await setDoc(doc(db, 'businessSettings', 'main'), {
+      ...sanitized,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// ------------------------------------------------------------------
+// Authenticated User Cart, Orders & Leads Subscriptions / Mutations
+// ------------------------------------------------------------------
 export function subscribeUserCart(
   uid: string,
   onData: (cart: Record<string, number>) => void,
@@ -85,11 +272,14 @@ export function subscribeUserCart(
 
 export function subscribeTrialOrders(
   uid: string,
+  isAdmin: boolean,
   onData: (orders: TrialOrder[]) => void,
   onError: (err: Error) => void
 ): Unsubscribe {
   const path = 'trialOrders';
-  const q = query(collection(db, 'trialOrders'), where('ownerId', '==', uid));
+  const q = isAdmin
+    ? query(collection(db, 'trialOrders'))
+    : query(collection(db, 'trialOrders'), where('ownerId', '==', uid));
   return onSnapshot(
     q,
     (snapshot) => {
@@ -126,11 +316,14 @@ export function subscribeTrialOrders(
 
 export function subscribeDealerLeads(
   uid: string,
+  isAdmin: boolean,
   onData: (leads: DealerLead[]) => void,
   onError: (err: Error) => void
 ): Unsubscribe {
   const path = 'dealerLeads';
-  const q = query(collection(db, 'dealerLeads'), where('ownerId', '==', uid));
+  const q = isAdmin
+    ? query(collection(db, 'dealerLeads'))
+    : query(collection(db, 'dealerLeads'), where('ownerId', '==', uid));
   return onSnapshot(
     q,
     (snapshot) => {
@@ -167,8 +360,9 @@ export async function upsertCartItemInFirestore(
   productId: string,
   nextQty: number
 ): Promise<void> {
-  const path = `users/${uid}/cartItems/${productId}`;
-  const ref = doc(db, 'users', uid, 'cartItems', productId);
+  const cleanSku = productId.trim().toUpperCase();
+  const path = `users/${uid}/cartItems/${cleanSku}`;
+  const ref = doc(db, 'users', uid, 'cartItems', cleanSku);
 
   if (nextQty <= 0) {
     try {
@@ -179,7 +373,7 @@ export async function upsertCartItemInFirestore(
     return;
   }
 
-  const payload = sanitizeCartItemPayload(uid, productId, nextQty);
+  const payload = sanitizeCartItemPayload(uid, cleanSku, nextQty);
   try {
     await setDoc(ref, {
       ...payload,

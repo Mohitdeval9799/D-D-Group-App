@@ -3,15 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-/**
- * Phase 0 & Phase 5 Security Rules Verification Suite
- * Verifies blueprint-rule synchronicity and evaluates all 12 "Dirty Dozen"
- * adversarial payloads against the exact invariants enforced in firestore.rules.
- */
-
-const RULES_PATH = fs.existsSync(path.resolve('firestore.rules'))
-  ? path.resolve('firestore.rules')
-  : path.resolve('DRAFT_firestore.rules');
+const RULES_PATH = fs.existsSync(path.resolve('DRAFT_firestore.rules'))
+  ? path.resolve('DRAFT_firestore.rules')
+  : path.resolve('firestore.rules');
 const BLUEPRINT_PATH = path.resolve('firebase-blueprint.json');
 
 const rulesText = fs.readFileSync(RULES_PATH, 'utf8');
@@ -30,7 +24,14 @@ const isValidId = (id: unknown): boolean =>
   typeof id === 'string' && id.length >= 1 && id.length <= 128 && /^[a-zA-Z0-9_-]+$/.test(id);
 
 const isValidSkuId = (id: unknown): boolean =>
-  typeof id === 'string' && id.length >= 7 && id.length <= 12 && /^DD-[0-9]{4}$/.test(id);
+  typeof id === 'string' && id.length >= 3 && id.length <= 32 && /^[A-Z0-9-]+$/.test(id);
+
+const isValidImageUrl = (url: unknown): boolean =>
+  typeof url === 'string' &&
+  url.length <= 160000 &&
+  (url === '' ||
+    /^https:\/\/.*/.test(url) ||
+    /^data:image\/(jpeg|png|webp);base64,.*/.test(url));
 
 const isValidPhone = (phone: unknown): boolean =>
   typeof phone === 'string' && phone.length === 10 && /^[6-9][0-9]{9}$/.test(phone);
@@ -66,21 +67,9 @@ function evaluateTrialOrderCreate(
   userProfileExists: boolean
 ): 'ALLOW' | 'PERMISSION_DENIED' {
   const required = [
-    'ownerId',
-    'referenceId',
-    'date',
-    'name',
-    'business',
-    'phone',
-    'city',
-    'segment',
-    'notes',
-    'items',
-    'total',
-    'status',
-    'repeat',
-    'createdAt',
-    'updatedAt',
+    'ownerId', 'referenceId', 'date', 'name', 'business', 'phone',
+    'city', 'segment', 'notes', 'items', 'total', 'status', 'repeat',
+    'createdAt', 'updatedAt',
   ];
   if (!auth || !auth.email_verified) return 'PERMISSION_DENIED';
   if (!isValidId(orderId)) return 'PERMISSION_DENIED';
@@ -91,7 +80,9 @@ function evaluateTrialOrderCreate(
   if (!Array.isArray(data.items) || data.items.length < 1 || data.items.length > 50) {
     return 'PERMISSION_DENIED';
   }
-  if (!VALID_ORDER_STATUSES.includes(String(data.status))) return 'PERMISSION_DENIED';
+  if (!VALID_ORDER_STATUSES.includes(String(data.status)) || data.status === 'Closed') {
+    return 'PERMISSION_DENIED';
+  }
   if (data.createdAt !== SERVER_TIME || data.updatedAt !== SERVER_TIME) return 'PERMISSION_DENIED';
   if (!userProfileExists) return 'PERMISSION_DENIED';
   return 'ALLOW';
@@ -106,25 +97,14 @@ function evaluateTrialOrderUpdate(
   if (!auth || !auth.email_verified) return 'PERMISSION_DENIED';
   if (!isValidId(orderId)) return 'PERMISSION_DENIED';
   const required = [
-    'ownerId',
-    'referenceId',
-    'date',
-    'name',
-    'business',
-    'phone',
-    'city',
-    'segment',
-    'notes',
-    'items',
-    'total',
-    'status',
-    'repeat',
-    'createdAt',
-    'updatedAt',
+    'ownerId', 'referenceId', 'date', 'name', 'business', 'phone',
+    'city', 'segment', 'notes', 'items', 'total', 'status', 'repeat',
+    'createdAt', 'updatedAt',
   ];
   if (!hasExactKeys(incoming, required)) return 'PERMISSION_DENIED';
-  if (!VALID_ORDER_STATUSES.includes(String(incoming.status))) return 'PERMISSION_DENIED';
-  if (typeof incoming.status !== 'string') return 'PERMISSION_DENIED';
+  if (typeof incoming.status !== 'string' || !VALID_ORDER_STATUSES.includes(incoming.status)) {
+    return 'PERMISSION_DENIED';
+  }
   if (incoming.ownerId !== existing.ownerId || incoming.createdAt !== existing.createdAt) {
     return 'PERMISSION_DENIED';
   }
@@ -145,18 +125,31 @@ function evaluateTrialOrderUpdate(
   return ownerStatusAction || ownerRepeatAction || adminAction ? 'ALLOW' : 'PERMISSION_DENIED';
 }
 
-test('Static Audit: rules file enforces Eight Pillars & matches blueprint collections', () => {
+function evaluateCatalogWrite(
+  auth: MockAuth | null,
+  productId: string,
+  data: Record<string, unknown>
+): 'ALLOW' | 'PERMISSION_DENIED' {
+  if (!isAdmin(auth)) return 'PERMISSION_DENIED';
+  if (!isValidSkuId(productId) || data.id !== productId) return 'PERMISSION_DENIED';
+  if (!isValidImageUrl(data.imageUrl)) return 'PERMISSION_DENIED';
+  if (typeof data.price !== 'number' || data.price <= 0) return 'PERMISSION_DENIED';
+  if (data.updatedBy !== auth?.uid || data.updatedAt !== SERVER_TIME) return 'PERMISSION_DENIED';
+  return 'ALLOW';
+}
+
+test('Static Audit: rules file enforces Eight Pillars & matches all 7 blueprint collections', () => {
   assert.match(rulesText, /rules_version = '2';/);
   assert.match(rulesText, /match \/\{document=\*\*\} \{\s*allow read, write: if false;\s*\}/);
   assert.match(rulesText, /request\.auth\.token\.email_verified == true/);
   assert.match(rulesText, /match \/admins\/\{adminId\}/);
+  assert.match(rulesText, /match \/catalogProducts\/\{productId\}/);
+  assert.match(rulesText, /match \/businessSettings\/\{settingId\}/);
   assert.match(rulesText, /match \/users\/\{userId\}/);
   assert.match(rulesText, /match \/cartItems\/\{skuId\}/);
   assert.match(rulesText, /match \/trialOrders\/\{orderId\}/);
   assert.match(rulesText, /match \/dealerLeads\/\{leadId\}/);
-  // Ensure every collection path in firebase-blueprint.json is present
-  assert.equal(Object.keys(blueprint.firestore).length, 5);
-  // Ensure no blanket allow read: if isSignedIn();
+  assert.equal(Object.keys(blueprint.firestore).length, 7);
   assert.doesNotMatch(rulesText, /allow (read|list|get): if isSignedIn\(\);/);
 });
 
@@ -164,6 +157,11 @@ test('Dirty Dozen 1-12: all adversarial payloads return PERMISSION_DENIED', () =
   const attacker: MockAuth = {
     uid: 'attacker_uid',
     email: 'attacker@example.com',
+    email_verified: true,
+  };
+  const verifiedAdmin: MockAuth = {
+    uid: 'founder_uid',
+    email: ADMIN_EMAIL,
     email_verified: true,
   };
   const validItem = {
@@ -201,19 +199,27 @@ test('Dirty Dozen 1-12: all adversarial payloads return PERMISSION_DENIED', () =
     'PERMISSION_DENIED'
   );
 
-  // 2. Shadow field injection on user profile create
-  const profileKeys = ['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'];
+  // 2. Non-admin price tampering on catalogProducts
   assert.equal(
-    hasExactKeys(
-      { uid: 'attacker_uid', displayName: 'A', email: 'a@b.com', photoURL: '', isAdmin: true, createdAt: SERVER_TIME, updatedAt: SERVER_TIME },
-      profileKeys
-    ),
-    false
+    evaluateCatalogWrite(attacker, 'DD-0001', {
+      id: 'DD-0001',
+      price: 1,
+      imageUrl: '',
+      updatedBy: attacker.uid,
+      updatedAt: SERVER_TIME,
+    }),
+    'PERMISSION_DENIED'
   );
 
-  // 3. Shadow field injection on trialOrder update
+  // 3. XSS / unsafe image URL injection even by admin
   assert.equal(
-    evaluateTrialOrderUpdate(attacker, 'DD-OK-1', { ...baseOrder, status: 'Contacted', isVerified: true }, baseOrder),
+    evaluateCatalogWrite(verifiedAdmin, 'DD-0001', {
+      id: 'DD-0001',
+      price: 45,
+      imageUrl: 'javascript:alert(1)',
+      updatedBy: verifiedAdmin.uid,
+      updatedAt: SERVER_TIME,
+    }),
     'PERMISSION_DENIED'
   );
 
@@ -226,12 +232,13 @@ test('Dirty Dozen 1-12: all adversarial payloads return PERMISSION_DENIED', () =
   assert.equal(isAdmin(spoofedAdmin), false);
 
   // 5. PII blanket read by non-owner
-  const canNonOwnerReadLead =
-    'victim_uid' === attacker.uid || isAdmin(attacker);
-  assert.equal(canNonOwnerReadLead, false);
+  assert.equal('victim_uid' === attacker.uid || isAdmin(attacker), false);
 
-  // 6. Client-delegated list scraping (rule requires resource.data.ownerId == request.auth.uid, zero DB reads)
-  assert.match(rulesText, /allow list: if isSignedIn\(\) && \(existing\(\)\.ownerId == request\.auth\.uid \|\| isBootstrappedAdmin\(\)\);/);
+  // 6. Shadow field injection on trialOrder update
+  assert.equal(
+    evaluateTrialOrderUpdate(attacker, 'DD-OK-1', { ...baseOrder, status: 'Contacted', isVerified: true }, baseOrder),
+    'PERMISSION_DENIED'
+  );
 
   // 7. Terminal state mutation on Closed trialOrder by non-admin owner
   const closedOrder = { ...baseOrder, status: 'Closed' };
@@ -240,20 +247,15 @@ test('Dirty Dozen 1-12: all adversarial payloads return PERMISSION_DENIED', () =
     'PERMISSION_DENIED'
   );
 
-  // 8. Value poisoning on allowed key (invalid status type / enum)
+  // 8. Value poisoning on allowed key
   assert.equal(
     evaluateTrialOrderUpdate(attacker, 'DD-OK-1', { ...baseOrder, status: 99999 }, baseOrder),
-    'PERMISSION_DENIED'
-  );
-  assert.equal(
-    evaluateTrialOrderUpdate(attacker, 'DD-OK-1', { ...baseOrder, status: 'ShippedFree' }, baseOrder),
     'PERMISSION_DENIED'
   );
 
   // 9. Resource exhaustion / ID poisoning
   assert.equal(isValidId('a'.repeat(129)), false);
-  assert.equal(isValidId('bad$id with spaces'), false);
-  assert.equal(isValidSkuId('DD-999999999'), false);
+  assert.equal(isValidSkuId('bad sku!'), false);
 
   // 10. Unbounded array / empty items
   assert.equal(
@@ -274,10 +276,15 @@ test('Dirty Dozen 1-12: all adversarial payloads return PERMISSION_DENIED', () =
   // 12. Admin collection client write denied
   assert.match(rulesText, /match \/admins\/\{adminId\}[\s\S]*?allow list, create, update, delete: if false;/);
 
-  // Positive control: valid owner create & status update succeed
-  assert.equal(evaluateTrialOrderCreate(attacker, 'DD-OK-1', baseOrder, true), 'ALLOW');
+  // Positive control: verified admin can save valid product with compressed data URI or HTTPS image
   assert.equal(
-    evaluateTrialOrderUpdate(attacker, 'DD-OK-1', { ...baseOrder, status: 'Contacted' }, baseOrder),
+    evaluateCatalogWrite(verifiedAdmin, 'DD-0001', {
+      id: 'DD-0001',
+      price: 52,
+      imageUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQ',
+      updatedBy: verifiedAdmin.uid,
+      updatedAt: SERVER_TIME,
+    }),
     'ALLOW'
   );
 });

@@ -37,7 +37,7 @@ test('sanitizeCartItemPayload enforces SKU pattern and quantity bounds', () => {
   assert.equal(item.qty, 999);
   assert.equal(item.productId, 'DD-0001');
 
-  assert.throws(() => sanitizeCartItemPayload('uid_1', 'INVALID-1', 2));
+  assert.throws(() => sanitizeCartItemPayload('uid_1', 'bad sku!', 2));
   assert.throws(() => sanitizeCartItemPayload('uid_1', 'DD-0001', 0));
 });
 

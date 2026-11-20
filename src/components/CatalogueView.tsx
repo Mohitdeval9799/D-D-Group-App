@@ -1,7 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { Download, Minus, Plus, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
-import { CATEGORIES, PRODUCTS } from '../data/products';
-import type { Product, SortMode } from '../types';
+import type { BusinessSettings, Product, SortMode } from '../types';
 import {
   buildCatalogueCsv,
   filterProducts,
@@ -11,9 +10,13 @@ import {
   PAGE_SIZE,
   paginate,
 } from '../utils/catalog';
-import { ProductIllustration } from './ProductIllustration';
+import { calculateDealerMarginPercent } from '../utils/catalogMerge';
+import { ProductVisual } from './ProductVisual';
 
 interface CatalogueViewProps {
+  products: Product[];
+  categories: string[];
+  settings: BusinessSettings;
   category: string;
   family: string;
   search: string;
@@ -35,6 +38,9 @@ interface CatalogueViewProps {
 }
 
 export function CatalogueView({
+  products,
+  categories,
+  settings,
   category,
   family,
   search,
@@ -56,12 +62,18 @@ export function CatalogueView({
 }: CatalogueViewProps) {
   const topControlsRef = useRef<HTMLDivElement>(null);
 
-  const categoryCounts = useMemo(() => getCategoryCounts(PRODUCTS, CATEGORIES), []);
-  const families = useMemo(() => getFamiliesForCategory(PRODUCTS, category), [category]);
+  const categoryCounts = useMemo(
+    () => getCategoryCounts(products, categories),
+    [products, categories]
+  );
+  const families = useMemo(
+    () => getFamiliesForCategory(products, category),
+    [products, category]
+  );
 
   const filtered = useMemo(
-    () => filterProducts(PRODUCTS, { category, family, search, sort }),
-    [category, family, search, sort]
+    () => filterProducts(products, { category, family, search, sort }),
+    [products, category, family, search, sort]
   );
 
   const paged = useMemo(() => paginate(filtered, page, PAGE_SIZE), [filtered, page]);
@@ -80,7 +92,7 @@ export function CatalogueView({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold text-[#087c67]">
-            Proposed D&amp;D Group B2B Portfolio
+            {settings.companyName} B2B Electrical Portfolio
           </p>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] tracking-tight mt-1">
             Electrical Product Catalogue
@@ -88,7 +100,7 @@ export function CatalogueView({
         </div>
         <button
           type="button"
-          onClick={() => onExportCsv(buildCatalogueCsv(PRODUCTS))}
+          onClick={() => onExportCsv(buildCatalogueCsv(products))}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-[#cde0da] bg-white text-sm font-semibold text-[#087c67] hover:bg-[#edf6f2] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <Download className="w-4 h-4" aria-hidden="true" />
@@ -96,13 +108,20 @@ export function CatalogueView({
         </button>
       </div>
 
-      {/* Technical Disclaimer */}
-      <div className="rounded-lg bg-[#fbf6e6] border border-[#e6d8ad] px-4 py-3 text-xs text-[#695326] leading-relaxed">
-        Representative illustrations only; physically similar variants may share a rendering.
-        Always verify exact ratings, poles, and dimensions from the specifications. All wholesale
-        prices are illustrative sample estimates excluding GST and freight. PCB refers to printed
-        circuit boards.
-      </div>
+      {/* Technical Disclaimer or Commercial Pricing Note */}
+      {settings.showPrototypeNotices ? (
+        <div className="rounded-lg bg-[#fbf6e6] border border-[#e6d8ad] px-4 py-3 text-xs text-[#695326] leading-relaxed">
+          Representative illustrations shown where factory photos have not been uploaded. Always
+          verify exact ratings, poles, and dimensions from specifications. {settings.gstNote}. PCB
+          refers to printed circuit boards.
+        </div>
+      ) : (
+        settings.gstNote && (
+          <div className="rounded-lg bg-[#edf5f2] border border-[#cde0da] px-4 py-2.5 text-xs text-[#2d4348]">
+            {settings.gstNote}
+          </div>
+        )
+      )}
 
       {/* Sidebar + Main Catalogue Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6 items-start">
@@ -112,10 +131,10 @@ export function CatalogueView({
           className="bg-white border border-[#dce5e3] rounded-lg p-3 lg:sticky lg:top-20"
         >
           <h2 className="hidden lg:block font-display text-xs font-bold uppercase tracking-wider text-[#5a6d71] px-2.5 pt-1 pb-2.5 border-b border-[#edf2f0]">
-            Categories ({CATEGORIES.length})
+            Categories ({categories.length})
           </h2>
           <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible lg:pt-2 pb-1 lg:pb-0">
-            {['All', ...CATEGORIES].map((cat) => {
+            {['All', ...categories].map((cat) => {
               const active = category === cat;
               return (
                 <button
@@ -131,7 +150,7 @@ export function CatalogueView({
                 >
                   <span className="truncate">{cat === 'All' ? 'All products' : cat}</span>
                   <span className="font-mono text-[11px] tabular-nums opacity-75">
-                    {categoryCounts[cat]}
+                    {categoryCounts[cat] ?? 0}
                   </span>
                 </button>
               );
@@ -250,7 +269,7 @@ export function CatalogueView({
               </p>
               <p className="text-sm text-[#5a6d71]">
                 Try searching with fewer terms (e.g. &ldquo;16A&rdquo;, &ldquo;9W&rdquo;, or
-                &ldquo;2.5 mm2&rdquo;) or reset filters to browse all {PRODUCTS.length} SKUs.
+                &ldquo;2.5 mm2&rdquo;) or reset filters to browse all {products.length} SKUs.
               </p>
               <button
                 type="button"
@@ -264,6 +283,9 @@ export function CatalogueView({
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {paged.items.map((product) => {
                 const qtyInCart = cart[product.id] ?? 0;
+                const marginPct = calculateDealerMarginPercent(product.price, product.mrp);
+                const outOfStock = product.inStock === false;
+
                 return (
                   <article
                     key={product.id}
@@ -273,17 +295,26 @@ export function CatalogueView({
                       type="button"
                       onClick={() => onInspectProduct(product)}
                       aria-label={`Inspect ${product.name}`}
-                      className="h-44 bg-gradient-to-b from-white to-[#eef3f1] flex items-center justify-center p-3 border-b border-[#edf2f0] cursor-pointer"
+                      className="h-44 bg-gradient-to-b from-white to-[#eef3f1] flex items-center justify-center p-3 border-b border-[#edf2f0] overflow-hidden cursor-pointer"
                     >
-                      <ProductIllustration product={product} className="w-full h-full max-w-[260px]" />
+                      <ProductVisual product={product} className="w-full h-full max-w-[260px]" />
                     </button>
 
                     <div className="p-4 flex-1 flex flex-col justify-between gap-3">
                       <div className="space-y-1.5">
-                        <div className="flex items-center gap-1.5 text-[11px] text-[#5a6d71]">
-                          <span className="font-medium text-[#087c67]">{product.category}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="font-mono">{product.id}</span>
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-[#5a6d71]">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-medium text-[#087c67] truncate">
+                              {product.category}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono shrink-0">{product.id}</span>
+                          </div>
+                          {outOfStock && (
+                            <span className="text-[#a43e2f] font-semibold shrink-0">
+                              Out of stock
+                            </span>
+                          )}
                         </div>
                         <h3 className="font-display text-[15px] font-bold text-[#142a30] leading-snug">
                           {product.family}
@@ -296,15 +327,31 @@ export function CatalogueView({
                       <div className="space-y-2.5 pt-2 border-t border-[#edf2f0]">
                         <div className="flex items-end justify-between gap-2">
                           <div>
-                            <div className="font-display text-xl font-extrabold text-[#142a30] tabular-nums leading-none">
-                              {formatInr(product.price)}
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-display text-xl font-extrabold text-[#142a30] tabular-nums leading-none">
+                                {formatInr(product.price)}
+                              </span>
+                              {product.mrp && product.mrp > product.price && (
+                                <span className="font-mono text-xs text-[#7c8f93] line-through tabular-nums">
+                                  {formatInr(product.mrp)}
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-[#6d8085] mt-1">
-                              Sample / {product.unit}
+                              Dealer / {product.unit}
+                              {marginPct !== null && (
+                                <span className="text-[#087c67] font-semibold">
+                                  {' '}
+                                  · {marginPct}% margin
+                                </span>
+                              )}
+                              {(product.moq ?? 1) > 1 && <span> · MOQ {product.moq}</span>}
                             </div>
                           </div>
 
-                          {qtyInCart > 0 ? (
+                          {outOfStock ? (
+                            <span className="text-xs font-semibold text-[#9c3224]">Unavailable</span>
+                          ) : qtyInCart > 0 ? (
                             <div className="inline-flex items-center rounded-md border border-[#087c67] bg-[#eef7f3]">
                               <button
                                 type="button"
@@ -329,7 +376,7 @@ export function CatalogueView({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => onUpdateCart(product.id, 1)}
+                              onClick={() => onUpdateCart(product.id, Math.max(1, product.moq ?? 1))}
                               aria-label={`Add ${product.name} to trial basket`}
                               className="inline-flex items-center gap-1 px-3.5 py-2 rounded-md bg-[#e8f3ee] text-[#066352] text-xs font-semibold hover:bg-[#087c67] hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                             >

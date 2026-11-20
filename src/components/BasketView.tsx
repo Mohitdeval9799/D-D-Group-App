@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { ArrowLeft, Minus, PackagePlus, Plus, Trash2 } from 'lucide-react';
 import { VENTURE_META } from '../data/venturePlan';
-import type { CartItem, PageId } from '../types';
+import type { BusinessSettings, CartItem, PageId } from '../types';
 import { formatInr } from '../utils/catalog';
 import { getCartTotals, validateDealerContact } from '../utils/pilot';
-import { ProductIllustration } from './ProductIllustration';
+import { ProductVisual } from './ProductVisual';
 
 interface BasketViewProps {
   items: CartItem[];
+  totalProductCount: number;
+  settings: BusinessSettings;
   isCloudSynced?: boolean;
   onUpdateCart: (productId: string, delta: number) => void;
   onRemoveItem: (productId: string) => void;
@@ -33,6 +35,8 @@ const SEGMENTS = [
 
 export function BasketView({
   items,
+  totalProductCount,
+  settings,
   isCloudSynced = false,
   onUpdateCart,
   onRemoveItem,
@@ -43,7 +47,7 @@ export function BasketView({
   const [name, setName] = useState('');
   const [business, setBusiness] = useState('');
   const [phone, setPhone] = useState('');
-  const [city, setCity] = useState('Jaipur');
+  const [city, setCity] = useState(settings.city.split(',')[0] || 'Jaipur');
   const [segment, setSegment] = useState(SEGMENTS[0]);
   const [notes, setNotes] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
@@ -62,7 +66,9 @@ export function BasketView({
     const validation = validateDealerContact({ name, business, phone, city });
     const nextErrors: Record<string, string> = { ...validation.errors };
     if (!acknowledged) {
-      nextErrors.acknowledged = 'Please confirm that you understand this is a local browser prototype.';
+      nextErrors.acknowledged = settings.showPrototypeNotices
+        ? 'Please confirm the submission acknowledgement before saving.'
+        : 'Please confirm your wholesale order request details.';
     }
 
     if (Object.keys(nextErrors).length > 0) {
@@ -83,7 +89,7 @@ export function BasketView({
     setName('');
     setBusiness('');
     setPhone('');
-    setCity('Jaipur');
+    setCity(settings.city.split(',')[0] || 'Jaipur');
     setSegment(SEGMENTS[0]);
     setNotes('');
     setAcknowledged(false);
@@ -93,7 +99,9 @@ export function BasketView({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold text-[#087c67]">Jaipur Dealer Pilot Ordering</p>
+          <p className="text-xs font-semibold text-[#087c67]">
+            {settings.companyName} Wholesale Ordering
+          </p>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#142a30] tracking-tight mt-1">
             Your Trial Basket
           </h1>
@@ -117,8 +125,8 @@ export function BasketView({
                 Your trial basket is currently empty.
               </p>
               <p className="text-sm text-[#5a6d71] max-w-md mx-auto leading-relaxed">
-                Select electrical SKUs from the 329-product catalogue or load a ready-made Jaipur
-                dealer starter mix aligned with our ₹5,000 trial order benchmark.
+                Select electrical SKUs from the {totalProductCount}-product catalogue or load a
+                ready-made dealer starter mix aligned with our ₹5,000 trial order benchmark.
               </p>
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
@@ -145,13 +153,13 @@ export function BasketView({
                   {totals.variantCount} {totals.variantCount === 1 ? 'variant' : 'variants'} ·{' '}
                   {totals.unitCount} total units
                 </span>
-                <span>Illustrative dealer prices · excl. GST &amp; freight</span>
+                <span>{settings.gstNote || 'Wholesale dealer rates · excl. GST & freight'}</span>
               </div>
 
               {items.map((item) => (
                 <div key={item.id} className="py-4 flex gap-4 items-start">
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-md bg-gradient-to-b from-white to-[#eef3f1] border border-[#e3ece9] p-1.5 flex items-center justify-center">
-                    <ProductIllustration product={item} className="w-full h-full" />
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-md bg-gradient-to-b from-white to-[#eef3f1] border border-[#e3ece9] p-1.5 flex items-center justify-center overflow-hidden">
+                    <ProductVisual product={item} className="w-full h-full" />
                   </div>
                   <div className="flex-1 min-w-0 space-y-2">
                     <div className="flex items-start justify-between gap-3">
@@ -224,12 +232,12 @@ export function BasketView({
         >
           <div>
             <h2 className="font-display text-lg font-bold text-[#142a30]">
-              Trial Request Details
+              {settings.showPrototypeNotices ? 'Trial Request Details' : 'Wholesale Order Details'}
             </h2>
             <p className="text-xs text-[#5a6d71] mt-1">
               {isCloudSynced
-                ? 'No minimum order enforced and no online payment collected. This request saves directly to your Cloud Firestore account.'
-                : 'No minimum order enforced and no online payment collected. Records stay in this browser unless you sign in with Google.'}
+                ? 'No online payment collected here. Your order request saves directly to Cloud Firestore for sales desk confirmation.'
+                : 'No online payment collected here. Sign in with Google to save your order directly to Cloud Firestore.'}
             </p>
           </div>
 
@@ -345,7 +353,7 @@ export function BasketView({
 
             <div>
               <label htmlFor="order-notes" className="block text-xs font-semibold text-[#2d4348] mb-1">
-                Requirements / sample notes
+                Requirements / dispatch notes
               </label>
               <textarea
                 id="order-notes"
@@ -363,15 +371,18 @@ export function BasketView({
           {/* Live Basket Summary & Benchmark */}
           <div className="pt-3 border-t border-[#edf2f0] space-y-2.5">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-[#5a6d71]">Estimated sample subtotal</span>
-              <strong className="font-display text-xl font-extrabold text-[#142a30] tabular-nums" data-testid="basket-subtotal">
+              <span className="text-[#5a6d71]">Estimated wholesale subtotal</span>
+              <strong
+                className="font-display text-xl font-extrabold text-[#142a30] tabular-nums"
+                data-testid="basket-subtotal"
+              >
                 {formatInr(totals.subtotal)}
               </strong>
             </div>
 
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[11px] text-[#5a6d71]">
-                <span>vs. Venture Plan avg trial order ({formatInr(VENTURE_META.defaultOrderValue)})</span>
+                <span>vs. starter trial benchmark ({formatInr(VENTURE_META.defaultOrderValue)})</span>
                 <span className="font-mono tabular-nums">{benchmarkPct}%</span>
               </div>
               <div className="h-1.5 rounded-full bg-[#e6efec] overflow-hidden">
@@ -392,9 +403,11 @@ export function BasketView({
                 className="mt-0.5 rounded border-[#b8cbc5] accent-[#087c67]"
               />
               <span>
-                {isCloudSynced
-                  ? 'I understand this is a Jaipur pilot prototype request saved to my Cloud Firestore account with no online payment collected.'
-                  : 'I understand this is a student venture prototype and agree to store fictional demo details locally in this browser.'}
+                {!settings.showPrototypeNotices
+                  ? `I confirm this wholesale order request for ${settings.companyName}. Final GST invoice, freight, and dispatch schedule will be confirmed by the sales desk.`
+                  : isCloudSynced
+                    ? 'I understand this is a Jaipur pilot prototype request saved to my Cloud Firestore account with no online payment collected.'
+                    : 'I understand this is a venture prototype and agree to store demo details locally in this browser.'}
               </span>
             </label>
             {errors.acknowledged && (
@@ -409,7 +422,7 @@ export function BasketView({
             disabled={items.length === 0}
             className="w-full py-3 px-5 rounded-md bg-[#087c67] text-white text-sm font-semibold hover:bg-[#066352] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            {isCloudSynced ? 'Save Trial Request to Cloud →' : 'Save Demo Trial Request →'}
+            {isCloudSynced ? 'Submit Order Request to Cloud →' : 'Save Trial Request →'}
           </button>
         </form>
       </div>

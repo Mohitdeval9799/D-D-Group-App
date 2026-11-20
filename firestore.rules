@@ -8,7 +8,7 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------
-    // Global Hardened Primitives (Phase 3 + Phase 5 Patches)
+    // Global Hardened Primitives
     // ---------------------------------------------------------
     function incoming() {
       return request.resource.data;
@@ -31,7 +31,7 @@ service cloud.firestore {
     }
 
     function isValidSkuId(skuId) {
-      return skuId is string && skuId.size() >= 7 && skuId.size() <= 12 && skuId.matches('^DD-[0-9]{4}$');
+      return skuId is string && skuId.size() >= 3 && skuId.size() <= 32 && skuId.matches('^[A-Z0-9\\-]+$');
     }
 
     function isValidRefId(refId) {
@@ -40,6 +40,16 @@ service cloud.firestore {
 
     function isValidPhone(phone) {
       return phone is string && phone.size() == 10 && phone.matches('^[6-9][0-9]{9}$');
+    }
+
+    function isValidImageUrl(url) {
+      return url is string &&
+        url.size() <= 160000 &&
+        (
+          url == '' ||
+          url.matches('^https://.*') ||
+          url.matches('^data:image/(jpeg|png|webp);base64,.*')
+        );
     }
 
     // Pure token check (zero DB reads) for safe use inside allow list queries
@@ -80,6 +90,71 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidCatalogProduct(data, productId) {
+      return data.keys().hasAll([
+          'id', 'category', 'family', 'spec', 'name', 'price', 'mrp', 'moq',
+          'kind', 'unit', 'description', 'imageUrl', 'inStock', 'isHidden',
+          'featured', 'isCustom', 'updatedBy', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'category', 'family', 'spec', 'name', 'price', 'mrp', 'moq',
+          'kind', 'unit', 'description', 'imageUrl', 'inStock', 'isHidden',
+          'featured', 'isCustom', 'updatedBy', 'updatedAt'
+        ]) &&
+        isValidSkuId(data.id) &&
+        data.id == productId &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+        data.family is string && data.family.size() >= 1 && data.family.size() <= 120 &&
+        data.spec is string && data.spec.size() >= 1 && data.spec.size() <= 160 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 240 &&
+        (data.price is int || data.price is float) && data.price > 0 && data.price <= 10000000 &&
+        (data.mrp is int || data.mrp is float) && data.mrp >= 0 && data.mrp <= 10000000 &&
+        data.moq is int && data.moq >= 1 && data.moq <= 9999 &&
+        data.kind is string && data.kind.size() >= 1 && data.kind.size() <= 32 &&
+        data.unit is string && data.unit.size() >= 1 && data.unit.size() <= 32 &&
+        data.description is string && data.description.size() <= 1500 &&
+        isValidImageUrl(data.imageUrl) &&
+        data.inStock is bool &&
+        data.isHidden is bool &&
+        data.featured is bool &&
+        data.isCustom is bool &&
+        isValidId(data.updatedBy) &&
+        data.updatedBy == request.auth.uid &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidBusinessSettings(data) {
+      return data.keys().hasAll([
+          'companyName', 'tagline', 'heroEyebrow', 'heroTitle', 'heroSubtitle',
+          'contactPerson', 'contactPhone', 'whatsappNumber', 'contactEmail',
+          'city', 'address', 'gstNote', 'announcementBanner', 'showPrototypeNotices',
+          'updatedBy', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'companyName', 'tagline', 'heroEyebrow', 'heroTitle', 'heroSubtitle',
+          'contactPerson', 'contactPhone', 'whatsappNumber', 'contactEmail',
+          'city', 'address', 'gstNote', 'announcementBanner', 'showPrototypeNotices',
+          'updatedBy', 'updatedAt'
+        ]) &&
+        data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 80 &&
+        data.tagline is string && data.tagline.size() <= 120 &&
+        data.heroEyebrow is string && data.heroEyebrow.size() <= 120 &&
+        data.heroTitle is string && data.heroTitle.size() >= 1 && data.heroTitle.size() <= 160 &&
+        data.heroSubtitle is string && data.heroSubtitle.size() <= 600 &&
+        data.contactPerson is string && data.contactPerson.size() <= 100 &&
+        data.contactPhone is string && data.contactPhone.size() <= 24 &&
+        data.whatsappNumber is string && data.whatsappNumber.size() <= 24 &&
+        data.contactEmail is string && data.contactEmail.size() <= 200 &&
+        data.city is string && data.city.size() <= 100 &&
+        data.address is string && data.address.size() <= 300 &&
+        data.gstNote is string && data.gstNote.size() <= 200 &&
+        data.announcementBanner is string && data.announcementBanner.size() <= 300 &&
+        data.showPrototypeNotices is bool &&
+        isValidId(data.updatedBy) &&
+        data.updatedBy == request.auth.uid &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidOrderItem(item) {
       return item is map &&
         item.keys().hasAll(['id', 'category', 'family', 'spec', 'name', 'price', 'kind', 'unit', 'qty']) &&
@@ -87,9 +162,9 @@ service cloud.firestore {
         isValidSkuId(item.id) &&
         item.category is string && item.category.size() >= 1 && item.category.size() <= 80 &&
         item.family is string && item.family.size() >= 1 && item.family.size() <= 120 &&
-        item.spec is string && item.spec.size() >= 1 && item.spec.size() <= 120 &&
-        item.name is string && item.name.size() >= 1 && item.name.size() <= 200 &&
-        (item.price is int || item.price is float) && item.price > 0 && item.price <= 1000000 &&
+        item.spec is string && item.spec.size() >= 1 && item.spec.size() <= 160 &&
+        item.name is string && item.name.size() >= 1 && item.name.size() <= 240 &&
+        (item.price is int || item.price is float) && item.price > 0 && item.price <= 10000000 &&
         item.kind is string && item.kind.size() >= 1 && item.kind.size() <= 32 &&
         item.unit is string && item.unit.size() >= 1 && item.unit.size() <= 32 &&
         item.qty is int && item.qty >= 1 && item.qty <= 999;
@@ -150,7 +225,7 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------
-    // Collection Rules (All 5 Blueprint Paths Covered)
+    // Collection Rules (All 7 Blueprint Paths Covered)
     // ---------------------------------------------------------
 
     // 1. Admin allowlist (Console-managed only; zero client writes)
@@ -159,7 +234,49 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
     }
 
-    // 2. User profiles (PII-isolated to owner or verified admin)
+    // 2. Public electrical product catalog overrides & custom SKUs (Admin write-only)
+    match /catalogProducts/{productId} {
+      allow get: if isValidSkuId(productId);
+      allow list: if resource.data.price > 0;
+      allow create: if isAdmin() &&
+        isValidSkuId(productId) &&
+        isValidCatalogProduct(incoming(), productId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isAdmin() &&
+        isValidSkuId(productId) &&
+        isValidCatalogProduct(incoming(), productId) &&
+        incoming().id == existing().id &&
+        incoming().isCustom == existing().isCustom &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'category', 'family', 'spec', 'name', 'price', 'mrp', 'moq',
+          'kind', 'unit', 'description', 'imageUrl', 'inStock', 'isHidden',
+          'featured', 'updatedBy', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidSkuId(productId);
+    }
+
+    // 3. Public business storefront settings (main doc only; Admin write-only)
+    match /businessSettings/{settingId} {
+      allow get: if settingId == 'main';
+      allow list, delete: if false;
+      allow create: if isAdmin() &&
+        settingId == 'main' &&
+        isValidBusinessSettings(incoming()) &&
+        incoming().updatedAt == request.time;
+      allow update: if isAdmin() &&
+        settingId == 'main' &&
+        isValidBusinessSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'companyName', 'tagline', 'heroEyebrow', 'heroTitle', 'heroSubtitle',
+          'contactPerson', 'contactPhone', 'whatsappNumber', 'contactEmail',
+          'city', 'address', 'gstNote', 'announcementBanner', 'showPrototypeNotices',
+          'updatedBy', 'updatedAt'
+        ]);
+    }
+
+    // 4. User profiles (PII-isolated to owner or verified admin)
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (userId == request.auth.uid || isAdmin());
       allow list: if false;
@@ -181,7 +298,7 @@ service cloud.firestore {
         );
       allow delete: if false;
 
-      // 2a. User Trial Basket Items subcollection (Master Gate checks parent user doc)
+      // 4a. User Trial Basket Items subcollection (Master Gate checks parent user doc)
       match /cartItems/{skuId} {
         allow get: if isSignedIn() && isValidId(userId) && isValidSkuId(skuId) && (userId == request.auth.uid || isAdmin());
         allow list: if isSignedIn() && isValidId(userId) && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
@@ -206,7 +323,7 @@ service cloud.firestore {
       }
     }
 
-    // 3. Trial Orders (PII-isolated, action-based updates, terminal Closed state locking)
+    // 5. Trial Orders (PII-isolated, action-based updates, terminal Closed state locking)
     match /trialOrders/{orderId} {
       allow get: if isSignedIn() && isValidId(orderId) && (existing().ownerId == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
@@ -226,22 +343,19 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
-          // Action 1: Owner updates workflow status while not in terminal Closed state
           (existing().ownerId == request.auth.uid &&
             existing().status != 'Closed' &&
             incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
-          // Action 2: Owner toggles repeat-purchase interest while not in terminal Closed state
           (existing().ownerId == request.auth.uid &&
             existing().status != 'Closed' &&
             incoming().diff(existing()).affectedKeys().hasOnly(['repeat', 'updatedAt'])) ||
-          // Action 3: Admin override for correcting status, repeat flag, or notes
           (isAdmin() &&
             incoming().diff(existing()).affectedKeys().hasOnly(['status', 'repeat', 'notes', 'updatedAt']))
         );
       allow delete: if isVerifiedUser() && isValidId(orderId) && (existing().ownerId == request.auth.uid || isAdmin());
     }
 
-    // 4. Dealer Connect Enquiries (PII-isolated)
+    // 6. Dealer Connect Enquiries (PII-isolated)
     match /dealerLeads/{leadId} {
       allow get: if isSignedIn() && isValidId(leadId) && (existing().ownerId == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());

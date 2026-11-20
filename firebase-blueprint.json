@@ -59,9 +59,9 @@
         "productId": {
           "type": "string",
           "description": "D&D Group SKU identifier matching the document ID.",
-          "minLength": 7,
-          "maxLength": 12,
-          "pattern": "^DD-[0-9]{4}$"
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[A-Z0-9\\-]+$"
         },
         "qty": {
           "type": "integer",
@@ -74,6 +74,162 @@
         }
       },
       "required": ["ownerId", "productId", "qty", "updatedAt"]
+    },
+    "CatalogProductOverride": {
+      "title": "Catalog Product Override or Custom SKU",
+      "description": "Admin-managed electrical product pricing, photo, specifications, description, and stock metadata.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "SKU code matching the document ID.",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "spec": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "price": {
+          "type": "number",
+          "description": "Wholesale dealer rate in INR."
+        },
+        "mrp": {
+          "type": "number",
+          "description": "Optional retail MRP in INR (0 when omitted)."
+        },
+        "moq": {
+          "type": "integer",
+          "description": "Minimum order quantity per order."
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed product description, warranty, and packaging notes.",
+          "minLength": 0,
+          "maxLength": 1500
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "HTTPS photo URL or compressed base64 image data URI (<= 160KB).",
+          "minLength": 0,
+          "maxLength": 160000
+        },
+        "inStock": {
+          "type": "boolean"
+        },
+        "isHidden": {
+          "type": "boolean"
+        },
+        "featured": {
+          "type": "boolean"
+        },
+        "isCustom": {
+          "type": "boolean"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "family",
+        "spec",
+        "name",
+        "price",
+        "mrp",
+        "moq",
+        "kind",
+        "unit",
+        "description",
+        "imageUrl",
+        "inStock",
+        "isHidden",
+        "featured",
+        "isCustom",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "BusinessSettingsRecord": {
+      "title": "Business Storefront Settings",
+      "description": "Admin-editable brand identity, storefront copy, contact details, and display mode.",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "tagline": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "heroEyebrow": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "heroTitle": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "heroSubtitle": { "type": "string", "minLength": 0, "maxLength": 600 },
+        "contactPerson": { "type": "string", "minLength": 0, "maxLength": 100 },
+        "contactPhone": { "type": "string", "minLength": 0, "maxLength": 24 },
+        "whatsappNumber": { "type": "string", "minLength": 0, "maxLength": 24 },
+        "contactEmail": { "type": "string", "minLength": 0, "maxLength": 200 },
+        "city": { "type": "string", "minLength": 0, "maxLength": 100 },
+        "address": { "type": "string", "minLength": 0, "maxLength": 300 },
+        "gstNote": { "type": "string", "minLength": 0, "maxLength": 200 },
+        "announcementBanner": { "type": "string", "minLength": 0, "maxLength": 300 },
+        "showPrototypeNotices": { "type": "boolean" },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "companyName",
+        "tagline",
+        "heroEyebrow",
+        "heroTitle",
+        "heroSubtitle",
+        "contactPerson",
+        "contactPhone",
+        "whatsappNumber",
+        "contactEmail",
+        "city",
+        "address",
+        "gstNote",
+        "announcementBanner",
+        "showPrototypeNotices",
+        "updatedBy",
+        "updatedAt"
+      ]
     },
     "TrialOrder": {
       "title": "Trial Order Request",
@@ -94,77 +250,22 @@
           "maxLength": 64,
           "pattern": "^[A-Z0-9\\-]+$"
         },
-        "date": {
-          "type": "string",
-          "format": "date-time",
-          "description": "ISO-8601 submission timestamp for display.",
-          "minLength": 10,
-          "maxLength": 40
-        },
-        "name": {
-          "type": "string",
-          "description": "Dealer contact person name (PII).",
-          "minLength": 1,
-          "maxLength": 100
-        },
-        "business": {
-          "type": "string",
-          "description": "Dealer shop or company name (PII).",
-          "minLength": 1,
-          "maxLength": 120
-        },
-        "phone": {
-          "type": "string",
-          "description": "10-digit Indian mobile number (PII).",
-          "minLength": 10,
-          "maxLength": 10,
-          "pattern": "^[6-9][0-9]{9}$"
-        },
-        "city": {
-          "type": "string",
-          "description": "City or market area.",
-          "minLength": 1,
-          "maxLength": 80
-        },
-        "segment": {
-          "type": "string",
-          "description": "Buyer segment classification.",
-          "minLength": 1,
-          "maxLength": 60
-        },
-        "notes": {
-          "type": "string",
-          "description": "Optional sample comparison or delivery notes.",
-          "minLength": 0,
-          "maxLength": 800
-        },
-        "items": {
-          "type": "array",
-          "description": "Bounded list (1 to 50) of ordered SKU line items."
-        },
-        "total": {
-          "type": "number",
-          "description": "Total illustrative wholesale value in INR."
-        },
+        "date": { "type": "string", "format": "date-time", "minLength": 10, "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "business": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[6-9][0-9]{9}$" },
+        "city": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "segment": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 800 },
+        "items": { "type": "array", "description": "Bounded list (1 to 50) of ordered SKU line items." },
+        "total": { "type": "number" },
         "status": {
           "type": "string",
-          "description": "Trial request workflow status; Closed is terminal for non-admin owners.",
           "enum": ["Requested", "Contacted", "Trial confirmed", "Closed"]
         },
-        "repeat": {
-          "type": "boolean",
-          "description": "Whether the dealer indicated interest in repeat orders."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Immutable server creation timestamp."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp of the latest status or repeat update."
-        }
+        "repeat": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
         "ownerId",
@@ -191,71 +292,20 @@
       "properties": {
         "ownerId": {
           "type": "string",
-          "description": "UID of the authenticated user who logged this enquiry.",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
-        "date": {
-          "type": "string",
-          "format": "date-time",
-          "description": "ISO-8601 enquiry date string.",
-          "minLength": 10,
-          "maxLength": 40
-        },
-        "name": {
-          "type": "string",
-          "description": "Contact person name (PII).",
-          "minLength": 1,
-          "maxLength": 100
-        },
-        "business": {
-          "type": "string",
-          "description": "Shop or trading firm name (PII).",
-          "minLength": 1,
-          "maxLength": 120
-        },
-        "phone": {
-          "type": "string",
-          "description": "10-digit Indian mobile number (PII).",
-          "minLength": 10,
-          "maxLength": 10,
-          "pattern": "^[6-9][0-9]{9}$"
-        },
-        "city": {
-          "type": "string",
-          "description": "Dealer city.",
-          "minLength": 1,
-          "maxLength": 80
-        },
-        "interest": {
-          "type": "string",
-          "description": "Primary product category of interest.",
-          "minLength": 1,
-          "maxLength": 80
-        },
-        "currentSupplier": {
-          "type": "string",
-          "description": "Current primary sourcing channel.",
-          "minLength": 1,
-          "maxLength": 100
-        },
-        "challenge": {
-          "type": "string",
-          "description": "Main procurement pain point.",
-          "minLength": 0,
-          "maxLength": 800
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Immutable server creation timestamp."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp of the latest update."
-        }
+        "date": { "type": "string", "format": "date-time", "minLength": 10, "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "business": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[6-9][0-9]{9}$" },
+        "city": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "interest": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "currentSupplier": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "challenge": { "type": "string", "minLength": 0, "maxLength": 800 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
         "ownerId",
@@ -278,7 +328,6 @@
       "properties": {
         "uid": {
           "type": "string",
-          "description": "Firebase Auth UID granted admin role.",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
@@ -295,6 +344,14 @@
     "/users/{userId}/cartItems/{skuId}": {
       "schema": { "$ref": "#/entities/CartItemRecord" },
       "description": "Per-user trial basket SKU quantities stored as a scalable subcollection."
+    },
+    "/catalogProducts/{productId}": {
+      "schema": { "$ref": "#/entities/CatalogProductOverride" },
+      "description": "Publicly readable, strictly admin-writable electrical product catalogue overrides and custom SKUs."
+    },
+    "/businessSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/BusinessSettingsRecord" },
+      "description": "Publicly readable (main doc only), strictly admin-writable storefront branding and business details."
     },
     "/trialOrders/{orderId}": {
       "schema": { "$ref": "#/entities/TrialOrder" },

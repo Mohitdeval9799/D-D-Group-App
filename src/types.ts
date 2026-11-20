@@ -29,6 +29,32 @@ export interface Product {
   price: number;
   kind: ProductKind;
   unit: string;
+  description?: string;
+  imageUrl?: string;
+  mrp?: number;
+  moq?: number;
+  inStock?: boolean;
+  isHidden?: boolean;
+  featured?: boolean;
+  isCustom?: boolean;
+  isEdited?: boolean;
+}
+
+export interface BusinessSettings {
+  companyName: string;
+  tagline: string;
+  heroEyebrow: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  contactPerson: string;
+  contactPhone: string;
+  whatsappNumber: string;
+  contactEmail: string;
+  city: string;
+  address: string;
+  gstNote: string;
+  announcementBanner: string;
+  showPrototypeNotices: boolean;
 }
 
 export interface CartItem extends Product {
@@ -70,7 +96,7 @@ export interface PilotState {
   leads: DealerLead[];
 }
 
-export type PageId = 'home' | 'catalogue' | 'cart' | 'dealer' | 'dashboard';
+export type PageId = 'home' | 'catalogue' | 'cart' | 'dealer' | 'dashboard' | 'admin';
 
 export type SortMode = 'default' | 'low' | 'high' | 'name';
 

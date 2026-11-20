@@ -1,6 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PRODUCTS, SAMPLE_TRIAL_KIT } from './data/products';
-import type { OrderStatus, PageId, PilotState, Product, SortMode, TrialOrder } from './types';
+import { CATEGORIES, PRODUCTS, SAMPLE_TRIAL_KIT } from './data/products';
+import type {
+  BusinessSettings,
+  OrderStatus,
+  PageId,
+  PilotState,
+  Product,
+  SortMode,
+  TrialOrder,
+} from './types';
+import {
+  DEFAULT_BUSINESS_SETTINGS,
+  getDynamicCategories,
+  getVisibleCustomerProducts,
+  loadLocalAdminDraft,
+  mergeCatalogProducts,
+  saveLocalAdminDraft,
+  type LocalAdminDraft,
+} from './utils/catalogMerge';
 import {
   clampQuantity,
   createSamplePilotRecords,
@@ -14,12 +31,18 @@ import {
   updateCartQuantity,
 } from './utils/pilot';
 import {
+  batchSaveCatalogProductsInFirestore,
   clearUserFirestoreData,
   createDealerLeadInFirestore,
   createTrialOrderInFirestore,
+  deleteCatalogProductOverrideInFirestore,
   mergeLocalCartIntoFirestore,
   replaceCartWithKitInFirestore,
+  saveBusinessSettingsInFirestore,
+  saveCatalogProductInFirestore,
   seedSampleRecordsInFirestore,
+  subscribeBusinessSettings,
+  subscribeCatalogOverrides,
   subscribeDealerLeads,
   subscribeTrialOrders,
   subscribeUserCart,
@@ -30,6 +53,7 @@ import {
 import { isQuotaExceededMessage } from './firebase';
 import { useFirebase } from './context/FirebaseContext';
 import { AccountSyncBar } from './components/AccountSyncBar';
+import { AdminView } from './components/AdminView';
 import { BasketView } from './components/BasketView';
 import { CatalogueView } from './components/CatalogueView';
 import { DashboardView } from './components/DashboardView';
@@ -38,7 +62,7 @@ import { Header } from './components/Header';
 import { HomeView } from './components/HomeView';
 import { ProductDetailModal } from './components/ProductDetailModal';
 
-const VALID_PAGES: PageId[] = ['home', 'catalogue', 'cart', 'dealer', 'dashboard'];
+const VALID_PAGES: PageId[] = ['home', 'catalogue', 'cart', 'dealer', 'dashboard', 'admin'];
 
 function readHashPage(): PageId {
   if (typeof window === 'undefined') return 'home';
@@ -59,11 +83,17 @@ function triggerDownload(content: string, mimeType: string, filename: string) {
 export default function App() {
   const { user, authReady, profileReady, isAdmin } = useFirebase();
   const isCloudSynced = Boolean(authReady && profileReady && user);
+  const isCloudAdmin = Boolean(isCloudSynced && isAdmin);
 
   const [page, setPage] = useState<PageId>(readHashPage);
   const [localState, setLocalState] = useState<PilotState>(loadPilotState);
   const [cloudState, setCloudState] = useState<PilotState>(EMPTY_PILOT_STATE);
   const [fatalFirestoreError, setFatalFirestoreError] = useState<Error | null>(null);
+
+  // Public live catalog overrides & business settings from Firestore + local draft preview
+  const [cloudOverrides, setCloudOverrides] = useState<Record<string, Product>>({});
+  const [cloudSettings, setCloudSettings] = useState<BusinessSettings | null>(null);
+  const [localAdminDraft, setLocalAdminDraft] = useState<LocalAdminDraft>(loadLocalAdminDraft);
 
   // Catalogue filter state
   const [category, setCategory] = useState<string>('All');
@@ -71,7 +101,7 @@ export default function App() {
   const [search, setSearch] = useState<string>('');
   const [sort, setSort] = useState<SortMode>('default');
   const [catalogPage, setCatalogPage] = useState<number>(1);
-  const [inspectedProduct, setInspectedProduct] = useState<Product | null>(null);
+  const [inspectedProductId, setInspectedProductId] = useState<string | null>(null);
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -101,7 +131,32 @@ export default function App() {
     [showToast]
   );
 
-  // Attach Firestore realtime listeners ONLY when authReady && profileReady && user
+  // 1. Public realtime listeners for catalog overrides & storefront business settings
+  useEffect(() => {
+    const onPublicListenerError = (err: Error) => {
+      if (isQuotaExceededMessage(err.message)) {
+        setFatalFirestoreError(err);
+      } else {
+        console.warn('Public catalog listener warning:', err.message);
+      }
+    };
+
+    const unsubCatalog = subscribeCatalogOverrides(
+      (overrides) => setCloudOverrides(overrides),
+      onPublicListenerError
+    );
+    const unsubSettings = subscribeBusinessSettings(
+      (settings) => setCloudSettings(settings),
+      onPublicListenerError
+    );
+
+    return () => {
+      unsubCatalog();
+      unsubSettings();
+    };
+  }, []);
+
+  // 2. Private authenticated listeners for user cart, orders & leads
   useEffect(() => {
     if (!authReady || !profileReady || !user) {
       setCloudState(EMPTY_PILOT_STATE);
@@ -125,11 +180,13 @@ export default function App() {
     );
     const unsubOrders = subscribeTrialOrders(
       uid,
+      isAdmin,
       (orders) => setCloudState((prev) => ({ ...prev, orders })),
       onListenerError
     );
     const unsubLeads = subscribeDealerLeads(
       uid,
+      isAdmin,
       (leads) => setCloudState((prev) => ({ ...prev, leads })),
       onListenerError
     );
@@ -139,7 +196,7 @@ export default function App() {
       unsubOrders();
       unsubLeads();
     };
-  }, [authReady, profileReady, user, showToast]);
+  }, [authReady, profileReady, user, isAdmin, showToast]);
 
   // Seamlessly merge any local trial basket items into Firestore once on sign-in
   useEffect(() => {
@@ -166,6 +223,42 @@ export default function App() {
     throw fatalFirestoreError;
   }
 
+  // Merge cloud catalog + any pending local admin drafts
+  const effectiveOverrides = useMemo<Record<string, Product>>(
+    () => ({ ...cloudOverrides, ...localAdminDraft.overrides }),
+    [cloudOverrides, localAdminDraft.overrides]
+  );
+
+  const effectiveSettings = useMemo<BusinessSettings>(
+    () => localAdminDraft.settings ?? cloudSettings ?? DEFAULT_BUSINESS_SETTINGS,
+    [localAdminDraft.settings, cloudSettings]
+  );
+
+  const allProducts = useMemo(
+    () => mergeCatalogProducts(PRODUCTS, effectiveOverrides),
+    [effectiveOverrides]
+  );
+
+  const customerProducts = useMemo(
+    () => getVisibleCustomerProducts(allProducts),
+    [allProducts]
+  );
+
+  const allCategories = useMemo(
+    () => getDynamicCategories(CATEGORIES, allProducts),
+    [allProducts]
+  );
+
+  const customerCategories = useMemo(
+    () => getDynamicCategories(CATEGORIES, customerProducts),
+    [customerProducts]
+  );
+
+  const inspectedProduct = useMemo(
+    () => (inspectedProductId ? allProducts.find((p) => p.id === inspectedProductId) ?? null : null),
+    [allProducts, inspectedProductId]
+  );
+
   const pilotState = isCloudSynced ? cloudState : localState;
 
   const persistLocalState = useCallback(
@@ -175,6 +268,22 @@ export default function App() {
         const saved = savePilotState(next);
         if (!saved) {
           showToast('Local storage unavailable. Changes persist for this session only.');
+        }
+        return next;
+      });
+    },
+    [showToast]
+  );
+
+  const updateLocalAdminDraft = useCallback(
+    (updater: (prev: LocalAdminDraft) => LocalAdminDraft) => {
+      setLocalAdminDraft((prev) => {
+        const next = updater(prev);
+        const saved = saveLocalAdminDraft(next);
+        if (!saved) {
+          showToast(
+            'Browser storage limit reached (photos are large). Sign in as Admin to save directly to Cloud Firestore.'
+          );
         }
         return next;
       });
@@ -224,11 +333,158 @@ export default function App() {
   }, []);
 
   const cartItems = useMemo(
-    () => getCartItems(PRODUCTS, pilotState.cart),
-    [pilotState.cart]
+    () => getCartItems(allProducts, pilotState.cart),
+    [allProducts, pilotState.cart]
   );
   const cartTotals = useMemo(() => getCartTotals(cartItems), [cartItems]);
 
+  // ------------------------------------------------------------------
+  // Admin Catalogue & Business Settings Handlers
+  // ------------------------------------------------------------------
+  const handleAdminSaveProduct = useCallback(
+    async (product: Product) => {
+      if (isCloudAdmin && user) {
+        try {
+          await saveCatalogProductInFirestore(user.uid, product);
+          // Clear any stale local draft for this SKU if it existed
+          if (product.id in localAdminDraft.overrides) {
+            updateLocalAdminDraft((prev) => {
+              const nextOverrides = { ...prev.overrides };
+              delete nextOverrides[product.id];
+              return { ...prev, overrides: nextOverrides };
+            });
+          }
+          showToast(`Published ${product.id} (${product.family}) live to Cloud Firestore`);
+        } catch (err) {
+          handleCloudActionError(err);
+          throw err;
+        }
+      } else {
+        updateLocalAdminDraft((prev) => ({
+          ...prev,
+          overrides: {
+            ...prev.overrides,
+            [product.id]: { ...product, isEdited: true },
+          },
+        }));
+        showToast(
+          `Saved ${product.id} in Local Draft Mode · Sign in as Admin to publish live`
+        );
+      }
+    },
+    [isCloudAdmin, user, localAdminDraft.overrides, updateLocalAdminDraft, showToast, handleCloudActionError]
+  );
+
+  const handleAdminDeleteOrResetProduct = useCallback(
+    async (product: Product) => {
+      if (isCloudAdmin && user) {
+        try {
+          await deleteCatalogProductOverrideInFirestore(product.id);
+          if (product.id in localAdminDraft.overrides) {
+            updateLocalAdminDraft((prev) => {
+              const nextOverrides = { ...prev.overrides };
+              delete nextOverrides[product.id];
+              return { ...prev, overrides: nextOverrides };
+            });
+          }
+          showToast(
+            product.isCustom
+              ? `Deleted custom product ${product.id} from Cloud Firestore`
+              : `Reset ${product.id} back to original catalogue defaults`
+          );
+        } catch (err) {
+          handleCloudActionError(err);
+          throw err;
+        }
+      } else {
+        updateLocalAdminDraft((prev) => {
+          const nextOverrides = { ...prev.overrides };
+          delete nextOverrides[product.id];
+          return { ...prev, overrides: nextOverrides };
+        });
+        showToast(
+          product.isCustom
+            ? `Removed custom draft ${product.id}`
+            : `Reverted local draft edits for ${product.id}`
+        );
+      }
+    },
+    [isCloudAdmin, user, localAdminDraft.overrides, updateLocalAdminDraft, showToast, handleCloudActionError]
+  );
+
+  const handleAdminBulkSaveProducts = useCallback(
+    async (updatedProducts: Product[]) => {
+      if (updatedProducts.length === 0) return;
+      if (isCloudAdmin && user) {
+        try {
+          await batchSaveCatalogProductsInFirestore(user.uid, updatedProducts);
+          showToast(`Published updated prices for ${updatedProducts.length} SKUs to Cloud Firestore`);
+        } catch (err) {
+          handleCloudActionError(err);
+          throw err;
+        }
+      } else {
+        updateLocalAdminDraft((prev) => {
+          const nextOverrides = { ...prev.overrides };
+          for (const p of updatedProducts) {
+            nextOverrides[p.id] = { ...p, isEdited: true };
+          }
+          return { ...prev, overrides: nextOverrides };
+        });
+        showToast(
+          `Updated ${updatedProducts.length} SKU prices in Local Draft Mode · Sign in as Admin to publish live`
+        );
+      }
+    },
+    [isCloudAdmin, user, updateLocalAdminDraft, showToast, handleCloudActionError]
+  );
+
+  const handleAdminSaveBusinessSettings = useCallback(
+    async (nextSettings: BusinessSettings) => {
+      if (isCloudAdmin && user) {
+        try {
+          await saveBusinessSettingsInFirestore(user.uid, nextSettings);
+          if (localAdminDraft.settings) {
+            updateLocalAdminDraft((prev) => ({ ...prev, settings: null }));
+          }
+          showToast('Published business & storefront settings live to Cloud Firestore');
+        } catch (err) {
+          handleCloudActionError(err);
+          throw err;
+        }
+      } else {
+        updateLocalAdminDraft((prev) => ({ ...prev, settings: nextSettings }));
+        showToast('Saved storefront settings in Local Draft Mode · Sign in as Admin to publish live');
+      }
+    },
+    [isCloudAdmin, user, localAdminDraft.settings, updateLocalAdminDraft, showToast, handleCloudActionError]
+  );
+
+  const handlePublishLocalDraftsToCloud = useCallback(async () => {
+    if (!isCloudAdmin || !user) return;
+    const draftProducts = Object.values(localAdminDraft.overrides);
+    try {
+      if (draftProducts.length > 0) {
+        await batchSaveCatalogProductsInFirestore(user.uid, draftProducts);
+      }
+      if (localAdminDraft.settings) {
+        await saveBusinessSettingsInFirestore(user.uid, localAdminDraft.settings);
+      }
+      updateLocalAdminDraft(() => ({ overrides: {}, settings: null }));
+      showToast('All local draft edits published live to Cloud Firestore');
+    } catch (err) {
+      handleCloudActionError(err);
+    }
+  }, [isCloudAdmin, user, localAdminDraft, updateLocalAdminDraft, showToast, handleCloudActionError]);
+
+  const handleDiscardLocalDrafts = useCallback(() => {
+    updateLocalAdminDraft(() => ({ overrides: {}, settings: null }));
+    showToast('Discarded local draft edits');
+  }, [updateLocalAdminDraft, showToast]);
+
+  // ------------------------------------------------------------------
+  // Cart, Order & Lead Handlers
+  // ------------------------------------------------------------------
   const handleUpdateCart = useCallback(
     (productId: string, delta: number) => {
       if (isCloudSynced && user) {
@@ -271,14 +527,14 @@ export default function App() {
         Object.keys(cloudState.cart),
         SAMPLE_TRIAL_KIT
       )
-        .then(() => showToast('Loaded ₹5,000 Jaipur dealer sample kit into your Cloud basket'))
+        .then(() => showToast('Loaded ₹5,000 dealer sample kit into your Cloud basket'))
         .catch(handleCloudActionError);
     } else {
       persistLocalState((prev) => ({
         ...prev,
         cart: { ...SAMPLE_TRIAL_KIT },
       }));
-      showToast('Loaded ₹5,000 Jaipur dealer sample kit into your trial basket');
+      showToast('Loaded ₹5,000 dealer sample kit into your trial basket');
     }
   }, [isCloudSynced, user, cloudState.cart, persistLocalState, showToast, handleCloudActionError]);
 
@@ -291,7 +547,7 @@ export default function App() {
       segment: string;
       notes: string;
     }) => {
-      const itemsSnapshot = getCartItems(PRODUCTS, pilotState.cart);
+      const itemsSnapshot = getCartItems(allProducts, pilotState.cart);
       if (itemsSnapshot.length === 0) return;
       const totals = getCartTotals(itemsSnapshot);
       const refId = generateOrderReference();
@@ -309,7 +565,7 @@ export default function App() {
         void createTrialOrderInFirestore(user.uid, newOrder, Object.keys(cloudState.cart))
           .then(() => {
             navigate('dashboard');
-            showToast(`Trial request ${refId} saved to Cloud Firestore.`);
+            showToast(`Order request ${refId} saved to Cloud Firestore.`);
           })
           .catch(handleCloudActionError);
       } else {
@@ -319,10 +575,11 @@ export default function App() {
           orders: [newOrder, ...prev.orders],
         }));
         navigate('dashboard');
-        showToast(`Demo trial request ${refId} saved locally. Sign in with Google to sync.`);
+        showToast(`Order request ${refId} saved locally. Sign in with Google to sync.`);
       }
     },
     [
+      allProducts,
       pilotState.cart,
       isCloudSynced,
       user,
@@ -394,10 +651,10 @@ export default function App() {
   );
 
   const handleLoadSampleRecords = useCallback(() => {
-    const sample = createSamplePilotRecords(PRODUCTS);
+    const sample = createSamplePilotRecords(allProducts);
     if (isCloudSynced && user) {
       void seedSampleRecordsInFirestore(user.uid, sample.orders, sample.leads)
-        .then(() => showToast('Loaded 3 sample Jaipur pilot requests and 2 dealer enquiries to Cloud Firestore'))
+        .then(() => showToast('Loaded 3 sample pilot requests and 2 dealer enquiries to Cloud Firestore'))
         .catch(handleCloudActionError);
     } else {
       persistLocalState((prev) => ({
@@ -405,9 +662,9 @@ export default function App() {
         orders: [...sample.orders, ...prev.orders],
         leads: [...sample.leads, ...prev.leads],
       }));
-      showToast('Loaded 3 sample Jaipur pilot requests and 2 dealer enquiries');
+      showToast('Loaded 3 sample pilot requests and 2 dealer enquiries');
     }
-  }, [isCloudSynced, user, persistLocalState, showToast, handleCloudActionError]);
+  }, [allProducts, isCloudSynced, user, persistLocalState, showToast, handleCloudActionError]);
 
   const handleResetAllData = useCallback(() => {
     if (isCloudSynced && user) {
@@ -435,9 +692,9 @@ export default function App() {
   ]);
 
   const handleExportCsv = useCallback(
-    (csvText: string) => {
-      triggerDownload(csvText, 'text/csv;charset=utf-8', 'dd-group-sample-catalogue.csv');
-      showToast('Exported 329-SKU sample catalogue CSV');
+    (csvText: string, filename = 'dd-group-catalogue.csv') => {
+      triggerDownload(csvText, 'text/csv;charset=utf-8', filename);
+      showToast(`Exported ${filename}`);
     },
     [showToast]
   );
@@ -446,26 +703,42 @@ export default function App() {
     const payload = JSON.stringify(
       {
         storageMode: isCloudSynced ? 'cloud_firestore' : 'local_browser',
-        disclaimer: 'Jaipur pilot prototype records — not verified paid sales',
         exportedAt: new Date().toISOString(),
+        businessSettings: effectiveSettings,
+        catalogOverrides: effectiveOverrides,
         orders: pilotState.orders,
         leads: pilotState.leads,
       },
       null,
       2
     );
-    triggerDownload(payload, 'application/json', 'dd-group-jaipur-pilot-records.json');
-    showToast('Exported pilot records JSON');
-  }, [isCloudSynced, pilotState.leads, pilotState.orders, showToast]);
+    triggerDownload(payload, 'application/json', 'dd-group-business-backup.json');
+    showToast('Exported complete business backup JSON');
+  }, [
+    isCloudSynced,
+    effectiveSettings,
+    effectiveOverrides,
+    pilotState.leads,
+    pilotState.orders,
+    showToast,
+  ]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7f6] text-[#142a30]">
-      <Header activePage={page} basketCount={cartTotals.unitCount} onNavigate={navigate} />
+      <Header
+        activePage={page}
+        basketCount={cartTotals.unitCount}
+        companyName={effectiveSettings.companyName}
+        onNavigate={navigate}
+      />
       <AccountSyncBar />
 
       <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-7 sm:py-9">
         {page === 'home' && (
           <HomeView
+            products={customerProducts}
+            categories={customerCategories}
+            settings={effectiveSettings}
             onNavigate={navigate}
             onSelectCategory={handleSelectCategoryFromHome}
           />
@@ -473,6 +746,9 @@ export default function App() {
 
         {page === 'catalogue' && (
           <CatalogueView
+            products={customerProducts}
+            categories={customerCategories}
+            settings={effectiveSettings}
             category={category}
             family={family}
             search={search}
@@ -497,8 +773,8 @@ export default function App() {
             onPageChange={setCatalogPage}
             onClearFilters={handleClearFilters}
             onUpdateCart={handleUpdateCart}
-            onInspectProduct={setInspectedProduct}
-            onExportCsv={handleExportCsv}
+            onInspectProduct={(prod) => setInspectedProductId(prod.id)}
+            onExportCsv={(csvText) => handleExportCsv(csvText, 'dd-group-catalogue.csv')}
             onOpenBasket={() => navigate('cart')}
           />
         )}
@@ -506,6 +782,8 @@ export default function App() {
         {page === 'cart' && (
           <BasketView
             items={cartItems}
+            totalProductCount={customerProducts.length}
+            settings={effectiveSettings}
             isCloudSynced={isCloudSynced}
             onUpdateCart={handleUpdateCart}
             onRemoveItem={handleRemoveCartItem}
@@ -516,7 +794,13 @@ export default function App() {
         )}
 
         {page === 'dealer' && (
-          <DealerConnectView isCloudSynced={isCloudSynced} onSubmitLead={handleSubmitLead} />
+          <DealerConnectView
+            products={customerProducts}
+            categories={customerCategories}
+            settings={effectiveSettings}
+            isCloudSynced={isCloudSynced}
+            onSubmitLead={handleSubmitLead}
+          />
         )}
 
         {page === 'dashboard' && (
@@ -533,26 +817,59 @@ export default function App() {
             onResetAllData={handleResetAllData}
           />
         )}
+
+        {page === 'admin' && (
+          <AdminView
+            products={allProducts}
+            categories={allCategories}
+            settings={effectiveSettings}
+            orders={pilotState.orders}
+            leads={pilotState.leads}
+            isCloudAdmin={isCloudAdmin}
+            localDraftProductCount={Object.keys(localAdminDraft.overrides).length}
+            hasLocalDraftSettings={localAdminDraft.settings !== null}
+            onSaveProduct={handleAdminSaveProduct}
+            onDeleteOrResetProduct={handleAdminDeleteOrResetProduct}
+            onBulkSaveProducts={handleAdminBulkSaveProducts}
+            onSaveBusinessSettings={handleAdminSaveBusinessSettings}
+            onPublishLocalDraftsToCloud={handlePublishLocalDraftsToCloud}
+            onDiscardLocalDrafts={handleDiscardLocalDrafts}
+            onOrderStatusChange={handleOrderStatusChange}
+            onOrderRepeatToggle={handleOrderRepeatToggle}
+            onExportCsv={handleExportCsv}
+            onExportBackupJson={handleExportJson}
+          />
+        )}
       </main>
 
       <footer className="border-t border-[#dce5e3] bg-white mt-12">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#5a6d71]">
           <div>
-            <strong className="font-semibold text-[#142a30]">D&amp;D Group</strong> · Connected by
-            Quality · Jaipur, Rajasthan Electrical Pilot Prototype
+            <strong className="font-semibold text-[#142a30]">
+              {effectiveSettings.companyName}
+            </strong>
+            {effectiveSettings.tagline && ` · ${effectiveSettings.tagline}`}
+            {effectiveSettings.city && ` · ${effectiveSettings.city}`}
+            {effectiveSettings.contactPhone && ` · ${effectiveSettings.contactPhone}`}
           </div>
           <div>
-            Independent student venture prototype · Representative vector illustrations ·{' '}
-            {isCloudSynced ? 'Synced with Cloud Firestore' : 'Sign in with Google for Cloud Firestore sync'}
+            {effectiveSettings.showPrototypeNotices
+              ? 'Jaipur pilot venture prototype · '
+              : 'Wholesale Electrical Supply · '}
+            {isCloudSynced
+              ? 'Synced with Cloud Firestore'
+              : 'Sign in with Google for Cloud Firestore sync'}
           </div>
         </div>
       </footer>
 
       <ProductDetailModal
         product={inspectedProduct}
+        allProducts={customerProducts}
+        settings={effectiveSettings}
         cartQty={inspectedProduct ? pilotState.cart[inspectedProduct.id] ?? 0 : 0}
-        onClose={() => setInspectedProduct(null)}
-        onSelectProduct={setInspectedProduct}
+        onClose={() => setInspectedProductId(null)}
+        onSelectProduct={(prod) => setInspectedProductId(prod.id)}
         onAddQuantity={(id, qty) => {
           handleUpdateCart(id, qty);
         }}
