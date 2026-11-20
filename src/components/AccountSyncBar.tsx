@@ -118,8 +118,10 @@ export function AccountSyncBar() {
 
       {authError && (
         <div
-          role="alert"
-          className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pb-2.5 pt-0.5 flex flex-wrap items-center justify-between gap-2 text-xs text-[#8f2e22]"
+          role={authErrorCode === 'auth/popup-closed-by-user' ? 'status' : 'alert'}
+          className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pb-2.5 pt-0.5 flex flex-wrap items-center justify-between gap-2 text-xs ${
+            authErrorCode === 'auth/popup-closed-by-user' ? 'text-[#695326]' : 'text-[#8f2e22]'
+          }`}
         >
           <span className="leading-relaxed">{authError}</span>
           <div className="flex items-center gap-3 shrink-0">

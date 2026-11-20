@@ -18,6 +18,7 @@ import {
   SlidersHorizontal,
   Store,
   Trash2,
+  X,
 } from 'lucide-react';
 import { ADMIN_EMAIL, useFirebase } from '../context/FirebaseContext';
 import type { BusinessSettings, DealerLead, OrderStatus, Product, TrialOrder } from '../types';
@@ -490,27 +491,63 @@ export function AdminView({
       {/* TAB 1: PRODUCTS & PRICING */}
       {activeTab === 'products' && (
         <div className="space-y-4">
-          {/* Search, Filters & Bulk Pricing Toggle */}
-          <div className="bg-white border border-[#dce5e3] rounded-lg p-4 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_185px_auto] gap-3">
+          {/* Prominent Full-Width Product Search Bar & Filter Controls */}
+          <div className="bg-white border border-[#dce5e3] rounded-lg p-4 sm:p-5 space-y-4 shadow-xs">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label
+                  htmlFor="admin-product-search-input"
+                  className="text-xs font-bold uppercase tracking-wider text-[#066352]"
+                >
+                  Quick Product Search · SKU, Name, Spec, or Description
+                </label>
+                <span className="text-xs font-mono tabular-nums text-[#5a6d71]" data-testid="admin-search-count">
+                  {filteredProducts.length} of {products.length} SKUs
+                </span>
+              </div>
+
               <div className="relative">
                 <Search
-                  className="w-4 h-4 text-[#6d8085] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  className="w-5 h-5 text-[#087c67] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
                   aria-hidden="true"
                 />
                 <input
-                  type="search"
+                  id="admin-product-search-input"
+                  type="text"
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
                     setPage(1);
                   }}
-                  placeholder="Search SKU, product name, wattage, spec..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && search) {
+                      setSearch('');
+                      setPage(1);
+                    }
+                  }}
+                  placeholder="Search by SKU (e.g. DD-0042), product name, wattage, colour, or description..."
                   data-testid="admin-product-search"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-[#d1dedb] bg-white text-[#142a30]"
+                  className="w-full pl-11 pr-24 py-3 text-sm sm:text-[15px] rounded-lg border-2 border-[#c2dbd3] bg-[#f8fbfa] text-[#142a30] placeholder:text-[#6d8085] focus:bg-white focus:border-[#087c67] focus:outline-none transition-colors"
                 />
+                {search.trim() !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      setPage(1);
+                    }}
+                    aria-label="Clear product search"
+                    data-testid="admin-clear-search-btn"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-[#e8f3ee] text-[#066352] text-xs font-semibold hover:bg-[#d6ebe2] transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Clear</span>
+                  </button>
+                )}
               </div>
+            </div>
 
+            <div className="flex flex-wrap items-center gap-3 pt-1">
               <select
                 value={categoryFilter}
                 onChange={(e) => {
@@ -518,7 +555,7 @@ export function AdminView({
                   setPage(1);
                 }}
                 aria-label="Filter by category"
-                className="px-3 py-2 text-sm rounded-md border border-[#d1dedb] bg-white text-[#142a30]"
+                className="flex-1 min-w-[180px] sm:flex-none sm:w-52 px-3 py-2 text-sm rounded-md border border-[#d1dedb] bg-white text-[#142a30]"
               >
                 <option value="All">All categories ({categories.length})</option>
                 {categories.map((cat) => (
@@ -535,7 +572,7 @@ export function AdminView({
                   setPage(1);
                 }}
                 aria-label="Filter by status"
-                className="px-3 py-2 text-sm rounded-md border border-[#d1dedb] bg-white text-[#142a30]"
+                className="flex-1 min-w-[170px] sm:flex-none sm:w-52 px-3 py-2 text-sm rounded-md border border-[#d1dedb] bg-white text-[#142a30]"
               >
                 <option value="all">All statuses</option>
                 <option value="edited">Edited / Custom ({stats.edited})</option>
@@ -544,10 +581,26 @@ export function AdminView({
                 <option value="hidden">Hidden ({stats.hidden})</option>
               </select>
 
+              {(search.trim() !== '' || categoryFilter !== 'All' || flagFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    setCategoryFilter('All');
+                    setFlagFilter('all');
+                    setPage(1);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold text-[#087c67] hover:bg-[#edf6f2] transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Reset all filters</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setBulkOpen((prev) => !prev)}
-                className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md border text-sm font-semibold whitespace-nowrap cursor-pointer ${
+                className={`sm:ml-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md border text-sm font-semibold whitespace-nowrap cursor-pointer ${
                   bulkOpen
                     ? 'border-[#087c67] bg-[#e8f5ef] text-[#066352]'
                     : 'border-[#cde0da] bg-white text-[#2d4348] hover:bg-[#f4f7f6]'
@@ -693,8 +746,23 @@ export function AdminView({
                 <tbody className="divide-y divide-[#edf2f0]">
                   {paged.items.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-10 text-center text-sm text-[#5a6d71]">
-                        No products match your search or filter.
+                      <td colSpan={7} className="py-12 px-4 text-center space-y-3">
+                        <p className="text-sm font-medium text-[#42555a]">
+                          No products match &ldquo;{search || categoryFilter}&rdquo;.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearch('');
+                            setCategoryFilter('All');
+                            setFlagFilter('all');
+                            setPage(1);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-[#087c67] text-white text-xs font-semibold hover:bg-[#066352] cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Clear search &amp; filters</span>
+                        </button>
                       </td>
                     </tr>
                   ) : (
@@ -744,6 +812,11 @@ export function AdminView({
                                 <div className="text-[#5a6d71] truncate max-w-[300px]">
                                   {product.spec}
                                 </div>
+                                {product.description && (
+                                  <div className="text-[11px] text-[#6d8085] truncate max-w-[300px] mt-0.5">
+                                    {product.description}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </td>

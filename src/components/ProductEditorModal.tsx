@@ -18,26 +18,24 @@ interface ProductEditorModalProps {
 const PRODUCT_KINDS: { value: ProductKind; label: string }[] = [
   { value: 'switch', label: 'Modular Switch' },
   { value: 'socket', label: 'Power Socket' },
-  { value: 'regulator', label: 'Fan Regulator' },
   { value: 'plate', label: 'Modular Cover Plate' },
   { value: 'bulb', label: 'LED Bulb' },
-  { value: 'batten', label: 'LED Tube / Batten' },
   { value: 'panel', label: 'LED Panel / Downlight' },
+  { value: 'tube', label: 'LED Tube / Batten' },
   { value: 'flood', label: 'LED Flood / Street Light' },
   { value: 'strip', label: 'LED Strip / Rope Light' },
   { value: 'wire', label: 'Copper Wire Coil' },
   { value: 'cable', label: 'Multicore / Heavy Cable' },
-  { value: 'mcb', label: 'MCB Circuit Breaker' },
-  { value: 'rccb', label: 'RCCB / Isolator' },
+  { value: 'breaker', label: 'MCB / RCCB / Circuit Breaker' },
   { value: 'db', label: 'Distribution Board (DB)' },
-  { value: 'box', label: 'Surface / Concealed Box' },
-  { value: 'extension', label: 'Extension Board / Spike Guard' },
-  { value: 'plug', label: 'Plug Top / Multi-Plug' },
-  { value: 'holder', label: 'Lamp Holder / Ceiling Rose' },
-  { value: 'tape', label: 'PVC Insulation Tape' },
+  { value: 'fan', label: 'Ceiling Fan' },
+  { value: 'exhaust', label: 'Exhaust Fan' },
+  { value: 'tablefan', label: 'Table / Pedestal Fan' },
+  { value: 'pcb', label: 'Printed Circuit Board (PCB)' },
   { value: 'conduit', label: 'PVC Conduit / Casing' },
-  { value: 'bell', label: 'Door Bell / Chime' },
-  { value: 'accessory', label: 'General Electrical Accessory' },
+  { value: 'box', label: 'Surface / Concealed Box' },
+  { value: 'accessory', label: 'Electrical Accessory' },
+  { value: 'tool', label: 'Electrical Tool / Tester' },
 ];
 
 const UNIT_OPTIONS = [
@@ -156,8 +154,7 @@ export function ProductEditorModal({
     try {
       const optimized = await compressProductImageFile(file);
       setImageUrl(optimized.dataUrl);
-      const kb = Math.round(optimized.byteLength / 1024);
-      setImageInfo(`Optimized ${optimized.width}×${optimized.height}px (${kb} KB)`);
+      setImageInfo(`Optimized ${optimized.width}×${optimized.height}px (${optimized.approxKb} KB)`);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Could not process image file.');
     } finally {

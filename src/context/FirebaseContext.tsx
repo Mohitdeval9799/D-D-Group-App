@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -125,25 +126,46 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const signInInFlightRef = useRef(false);
+
   const signInWithGoogle = useCallback(async () => {
+    if (signInInFlightRef.current) return;
+    signInInFlightRef.current = true;
     setAuthError(null);
     setAuthErrorCode(null);
     setAuthBusy(true);
+    const startedAt = Date.now();
     try {
       // Invoke signInWithPopup synchronously before any await so browsers preserve the click gesture
       await signInWithPopup(auth, googleProvider, popupResolver);
     } catch (err) {
       const code = (err as { code?: string })?.code ?? '';
       const message = err instanceof Error ? err.message : String(err);
-      console.error('Google Sign-In error:', code, message, err);
+      const elapsedMs = Date.now() - startedAt;
 
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        // User intentionally dismissed the Google popup
-      } else {
-        setAuthErrorCode(code || 'auth/unknown');
-        setAuthError(formatGoogleAuthError(code, message, isEmbeddedIframe));
+      if (code === 'auth/cancelled-popup-request') {
+        // Benign: another sign-in popup superseded this request
+        return;
       }
+
+      if (code === 'auth/popup-closed-by-user') {
+        // Benign user dismissal or browser iframe/COOP auto-closing the popup — never log as console.error
+        if (isEmbeddedIframe || elapsedMs < 2000) {
+          setAuthErrorCode(code);
+          setAuthError(
+            isEmbeddedIframe
+              ? 'The Google Sign-In window closed before finishing. Browser privacy settings inside the preview frame can close OAuth popups — click "Open in New Tab" to sign in cleanly.'
+              : 'The Google Sign-In window was closed before completing. Click "Sign in with Google" to try again.'
+          );
+        }
+        return;
+      }
+
+      console.warn('Google Sign-In failed:', code, message);
+      setAuthErrorCode(code || 'auth/unknown');
+      setAuthError(formatGoogleAuthError(code, message, isEmbeddedIframe));
     } finally {
+      signInInFlightRef.current = false;
       setAuthBusy(false);
     }
   }, [isEmbeddedIframe]);
